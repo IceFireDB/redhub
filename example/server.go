@@ -11,6 +11,7 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/Jchicode/redhub"
+	"github.com/Jchicode/redhub/pkg/redcon"
 	"github.com/panjf2000/gnet"
 )
 
@@ -44,39 +45,39 @@ func main() {
 		func(c gnet.Conn, err error) (action gnet.Action) {
 			return
 		},
-		func(c gnet.Conn, cmd redhub.Command) (out []byte) {
+		func(c gnet.Conn, cmd redcon.Command) (out []byte) {
 			switch strings.ToLower(string(cmd.Args[0])) {
 			default:
-				out = redhub.AppendError(out, "ERR unknown command '"+string(cmd.Args[0])+"'")
+				out = redcon.AppendError(out, "ERR unknown command '"+string(cmd.Args[0])+"'")
 			case "ping":
-				out = redhub.AppendString(out, "PONG")
+				out = redcon.AppendString(out, "PONG")
 			case "quit":
-				out = redhub.AppendString(out, "OK")
+				out = redcon.AppendString(out, "OK")
 			case "set":
 				if len(cmd.Args) != 3 {
-					out = redhub.AppendError(out, "ERR wrong number of arguments for '"+string(cmd.Args[0])+"' command")
+					out = redcon.AppendError(out, "ERR wrong number of arguments for '"+string(cmd.Args[0])+"' command")
 					break
 				}
 				mu.Lock()
 				items[string(cmd.Args[1])] = cmd.Args[2]
 				mu.Unlock()
-				out = redhub.AppendString(out, "OK")
+				out = redcon.AppendString(out, "OK")
 			case "get":
 				if len(cmd.Args) != 2 {
-					out = redhub.AppendError(out, "ERR wrong number of arguments for '"+string(cmd.Args[0])+"' command")
+					out = redcon.AppendError(out, "ERR wrong number of arguments for '"+string(cmd.Args[0])+"' command")
 					break
 				}
 				mu.RLock()
 				val, ok := items[string(cmd.Args[1])]
 				mu.RUnlock()
 				if !ok {
-					out = redhub.AppendNull(out)
+					out = redcon.AppendNull(out)
 				} else {
-					out = redhub.AppendBulk(out, val)
+					out = redcon.AppendBulk(out, val)
 				}
 			case "del":
 				if len(cmd.Args) != 2 {
-					out = redhub.AppendError(out, "ERR wrong number of arguments for '"+string(cmd.Args[0])+"' command")
+					out = redcon.AppendError(out, "ERR wrong number of arguments for '"+string(cmd.Args[0])+"' command")
 					break
 				}
 				mu.Lock()
@@ -84,16 +85,16 @@ func main() {
 				delete(items, string(cmd.Args[1]))
 				mu.Unlock()
 				if !ok {
-					out = redhub.AppendInt(out, 0)
+					out = redcon.AppendInt(out, 0)
 				} else {
-					out = redhub.AppendInt(out, 1)
+					out = redcon.AppendInt(out, 1)
 				}
 			case "config":
 				// This simple (blank) response is only here to allow for the
 				// redis-benchmark command to work with this example.
-				out = redhub.AppendArray(out, 2)
-				out = redhub.AppendBulk(out, cmd.Args[2])
-				out = redhub.AppendBulkString(out, "")
+				out = redcon.AppendArray(out, 2)
+				out = redcon.AppendBulk(out, cmd.Args[2])
+				out = redcon.AppendBulkString(out, "")
 			}
 			return
 		},

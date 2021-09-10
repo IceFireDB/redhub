@@ -4,25 +4,23 @@ import (
 	"bytes"
 	"sync"
 
+	"github.com/Jchicode/redhub/pkg/redcon"
 	"github.com/panjf2000/gnet"
 )
 
 var iceConn map[gnet.Conn]*connBuffer
 var connSync sync.RWMutex
 
-var mu sync.RWMutex
-var items = make(map[string][]byte)
-
 type redisServer struct {
 	*gnet.EventServer
 	onOpened func(c gnet.Conn) (out []byte, action gnet.Action)
 	onClosed func(c gnet.Conn, err error) (action gnet.Action)
-	handler  func(c gnet.Conn, cmd Command) []byte
+	handler  func(c gnet.Conn, cmd redcon.Command) []byte
 }
 
 type connBuffer struct {
 	buf     bytes.Buffer
-	command []Command
+	command []redcon.Command
 }
 
 func (rs *redisServer) OnOpened(c gnet.Conn) (out []byte, action gnet.Action) {
@@ -30,7 +28,6 @@ func (rs *redisServer) OnOpened(c gnet.Conn) (out []byte, action gnet.Action) {
 	defer connSync.Unlock()
 	iceConn[c] = new(connBuffer)
 	rs.onOpened(c)
-
 	return
 }
 
@@ -47,17 +44,16 @@ func (rs *redisServer) React(frame []byte, c gnet.Conn) (out []byte, action gnet
 	defer connSync.RUnlock()
 	cb, ok := iceConn[c]
 	if !ok {
-		out = AppendError(out, "ERR Client is closed")
+		out = redcon.AppendError(out, "ERR Client is closed")
 		return
 	}
-
 	cb.buf.Write(frame)
-	cmds, lastbyte, err := Parse(cb.buf.Bytes())
+	cmds, lastbyte, err := redcon.ReadCommands(cb.buf.Bytes())
 	cb.command = append(cb.command, cmds...)
 	cb.buf.Reset()
 	cb.buf.Write(lastbyte)
 	if err != nil {
-		out = AppendError(out, "ERR "+err.Error())
+		out = redcon.AppendError(out, "ERR "+err.Error())
 		return
 	}
 	if len(lastbyte) == 0 {
@@ -81,7 +77,7 @@ func init() {
 func ListendAndServe(addr string,
 	onOpened func(c gnet.Conn) (out []byte, action gnet.Action),
 	onClosed func(c gnet.Conn, err error) (action gnet.Action),
-	handler func(c gnet.Conn, cmd Command) []byte,
+	handler func(c gnet.Conn, cmd redcon.Command) []byte,
 	options gnet.Options,
 ) error {
 	rs := &redisServer{
