@@ -1,4 +1,4 @@
-module github.com/Jchicode/RedisServerGnet
+module github.com/Jchicode/redhub
 
 go 1.16
 
