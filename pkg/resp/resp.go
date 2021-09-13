@@ -1,4 +1,4 @@
-package redcon
+package resp
 
 import (
 	"fmt"
