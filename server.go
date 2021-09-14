@@ -8,6 +8,17 @@ import (
 	"github.com/panjf2000/gnet"
 )
 
+const (
+	// None indicates that no action should occur following an event.
+	None Action = iota
+
+	// Close closes the connection.
+	Close
+
+	// Shutdown shutdowns the server.
+	Shutdown
+)
+
 var iceConn map[gnet.Conn]*connBuffer
 var connSync sync.RWMutex
 
@@ -24,7 +35,7 @@ type redisServer struct {
 	*gnet.EventServer
 	onOpened func(c *Conn) (out []byte, action Action)
 	onClosed func(c *Conn, err error) (action Action)
-	handler  func(c *Conn, cmd resp.Command) []byte
+	handler  func(c *Conn, cmd resp.Command) (out []byte, action Action)
 }
 
 type connBuffer struct {
@@ -73,7 +84,12 @@ func (rs *redisServer) React(frame []byte, c gnet.Conn) (out []byte, action gnet
 			} else {
 				cb.command = cb.command[1:]
 			}
-			out = append(out, rs.handler(&Conn{Conn: c}, cmd)...)
+			outOne, status := rs.handler(&Conn{Conn: c}, cmd)
+			out = append(out, outOne...)
+			switch status {
+			case Close:
+				action = gnet.Close
+			}
 		}
 	}
 	return
@@ -87,7 +103,7 @@ func ListendAndServe(addr string,
 	options Options,
 	onOpened func(c *Conn) (out []byte, action Action),
 	onClosed func(c *Conn, err error) (action Action),
-	handler func(c *Conn, cmd resp.Command) []byte,
+	handler func(c *Conn, cmd resp.Command) (out []byte, action Action),
 ) error {
 	rs := &redisServer{
 		onOpened: onOpened,

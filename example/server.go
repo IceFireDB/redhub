@@ -18,7 +18,6 @@ func main() {
 	var mu sync.RWMutex
 	var items = make(map[string][]byte)
 	var network string
-	var port int
 	var addr string
 	var multicore bool
 	var pprofDebug bool
@@ -45,7 +44,7 @@ func main() {
 		func(c *redhub.Conn, err error) (action redhub.Action) {
 			return
 		},
-		func(c *redhub.Conn, cmd resp.Command) (out []byte) {
+		func(c *redhub.Conn, cmd resp.Command) (out []byte, status redhub.Action) {
 			switch strings.ToLower(string(cmd.Args[0])) {
 			default:
 				out = resp.AppendError(out, "ERR unknown command '"+string(cmd.Args[0])+"'")
@@ -53,6 +52,7 @@ func main() {
 				out = resp.AppendString(out, "PONG")
 			case "quit":
 				out = resp.AppendString(out, "OK")
+				status = redhub.Close
 			case "set":
 				if len(cmd.Args) != 3 {
 					out = resp.AppendError(out, "ERR wrong number of arguments for '"+string(cmd.Args[0])+"' command")
