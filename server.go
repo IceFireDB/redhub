@@ -84,10 +84,10 @@ func init() {
 }
 
 func ListendAndServe(addr string,
+	options Options,
 	onOpened func(c *Conn) (out []byte, action Action),
 	onClosed func(c *Conn, err error) (action Action),
 	handler func(c *Conn, cmd resp.Command) []byte,
-	options Options,
 ) error {
 	rs := &redisServer{
 		onOpened: onOpened,

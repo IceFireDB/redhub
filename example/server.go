@@ -17,11 +17,14 @@ import (
 func main() {
 	var mu sync.RWMutex
 	var items = make(map[string][]byte)
+	var network string
 	var port int
+	var addr string
 	var multicore bool
 	var pprofDebug bool
 	var pprofAddr string
-	flag.IntVar(&port, "port", 6382, "server port")
+	flag.StringVar(&network, "network", "tcp", "server network (default \"tcp\")")
+	flag.StringVar(&addr, "port", ":6382", "server addr (default \":6382\")")
 	flag.BoolVar(&multicore, "multicore", true, "multicore")
 	flag.BoolVar(&pprofDebug, "pprofDebug", false, "open pprof")
 	flag.StringVar(&pprofAddr, "pprofAddr", ":8888", "pprof address")
@@ -32,10 +35,10 @@ func main() {
 		}()
 	}
 
-	addr := fmt.Sprintf("tcp://:%d", port)
+	protoAddr := fmt.Sprintf("%s://%s", network, addr)
 	option := redhub.Options{}
 	option.Multicore = multicore
-	err := redhub.ListendAndServe(addr,
+	err := redhub.ListendAndServe(protoAddr, option,
 		func(c *redhub.Conn) (out []byte, action redhub.Action) {
 			return
 		},
@@ -95,7 +98,6 @@ func main() {
 			}
 			return
 		},
-		option,
 	)
 	if err != nil {
 		log.Fatal(err)
