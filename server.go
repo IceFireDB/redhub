@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"sync"
 
-	"github.com/Jchicode/redhub/pkg/resp"
+	"github.com/IceFireDB/redhub/pkg/resp"
 	"github.com/panjf2000/gnet"
 )
 
@@ -69,13 +69,12 @@ func (rs *redisServer) React(frame []byte, c gnet.Conn) (out []byte, action gnet
 	}
 	cb.buf.Write(frame)
 	cmds, lastbyte, err := resp.ReadCommands(cb.buf.Bytes())
-	cb.command = append(cb.command, cmds...)
-	cb.buf.Reset()
-	cb.buf.Write(lastbyte)
 	if err != nil {
 		out = resp.AppendError(out, "ERR "+err.Error())
 		return
 	}
+	cb.command = append(cb.command, cmds...)
+	cb.buf.Reset()
 	if len(lastbyte) == 0 {
 		for len(cb.command) > 0 {
 			cmd := cb.command[0]
@@ -91,6 +90,8 @@ func (rs *redisServer) React(frame []byte, c gnet.Conn) (out []byte, action gnet
 				action = gnet.Close
 			}
 		}
+	} else {
+		cb.buf.Write(lastbyte)
 	}
 	return
 }

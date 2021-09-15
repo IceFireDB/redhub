@@ -10,8 +10,8 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 
-	"github.com/Jchicode/redhub"
-	"github.com/Jchicode/redhub/pkg/resp"
+	"github.com/IceFireDB/redhub"
+	"github.com/IceFireDB/redhub/pkg/resp"
 )
 
 func main() {

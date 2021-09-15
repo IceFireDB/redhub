@@ -1,4 +1,4 @@
-module github.com/Jchicode/redhub
+module github.com/IceFireDB/redhub
 
 go 1.16
 
