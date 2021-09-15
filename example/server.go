@@ -23,7 +23,7 @@ func main() {
 	var pprofDebug bool
 	var pprofAddr string
 	flag.StringVar(&network, "network", "tcp", "server network (default \"tcp\")")
-	flag.StringVar(&addr, "port", ":6382", "server addr (default \":6382\")")
+	flag.StringVar(&addr, "addr", ":6382", "server addr (default \":6382\")")
 	flag.BoolVar(&multicore, "multicore", true, "multicore")
 	flag.BoolVar(&pprofDebug, "pprofDebug", false, "open pprof")
 	flag.StringVar(&pprofAddr, "pprofAddr", ":8888", "pprof address")
