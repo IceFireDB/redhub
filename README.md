@@ -49,18 +49,20 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 
-	"github.com/Jchicode/redhub"
-	"github.com/Jchicode/redhub/pkg/resp"
+	"github.com/IceFireDB/redhub"
+	"github.com/IceFireDB/redhub/pkg/resp"
 )
 
 func main() {
 	var mu sync.RWMutex
 	var items = make(map[string][]byte)
-	var port int
+	var network string
+	var addr string
 	var multicore bool
 	var pprofDebug bool
 	var pprofAddr string
-	flag.IntVar(&port, "port", 6382, "server port")
+	flag.StringVar(&network, "network", "tcp", "server network (default \"tcp\")")
+	flag.StringVar(&addr, "addr", ":6382", "server addr (default \":6382\")")
 	flag.BoolVar(&multicore, "multicore", true, "multicore")
 	flag.BoolVar(&pprofDebug, "pprofDebug", false, "open pprof")
 	flag.StringVar(&pprofAddr, "pprofAddr", ":8888", "pprof address")
@@ -70,17 +72,19 @@ func main() {
 			http.ListenAndServe(pprofAddr, nil)
 		}()
 	}
-	addr := fmt.Sprintf("tcp://:%d", port)
+
+	protoAddr := fmt.Sprintf("%s://%s", network, addr)
 	option := redhub.Options{}
 	option.Multicore = multicore
-	err := redhub.ListendAndServe(addr,
+	err := redhub.ListendAndServe(protoAddr, option,
 		func(c *redhub.Conn) (out []byte, action redhub.Action) {
 			return
 		},
 		func(c *redhub.Conn, err error) (action redhub.Action) {
 			return
 		},
-		func(c *redhub.Conn, cmd resp.Command) (out []byte) {
+		func(cmd resp.Command, out []byte) ([]byte, redhub.Action) {
+			var status redhub.Action
 			switch strings.ToLower(string(cmd.Args[0])) {
 			default:
 				out = resp.AppendError(out, "ERR unknown command '"+string(cmd.Args[0])+"'")
@@ -88,6 +92,7 @@ func main() {
 				out = resp.AppendString(out, "PONG")
 			case "quit":
 				out = resp.AppendString(out, "OK")
+				status = redhub.Close
 			case "set":
 				if len(cmd.Args) != 3 {
 					out = resp.AppendError(out, "ERR wrong number of arguments for '"+string(cmd.Args[0])+"' command")
@@ -131,9 +136,8 @@ func main() {
 				out = resp.AppendBulk(out, cmd.Args[2])
 				out = resp.AppendBulkString(out, "")
 			}
-			return
+			return out, status
 		},
-		option,
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -144,6 +148,24 @@ func main() {
 Benchmarks
 ----------
 
+**Redhub**: Multi-threaded, no disk persistence.
+
+```
+$ go run example/server.go
+```
+```
+$ redis-benchmark -p 6380 -t set,get -n 10000000 -q -P 1024 -c 512
+SET: 3033060.50 requests per second
+GET: 6169031.50 requests per second
+```
+
+```
+$ redis-benchmark -p 6380 -t set,get -n 10000000 -q -P 512 -c 512
+SET: 2840909.00 requests per second
+GET: 5643341.00 requests per second
+```
+
+*Running on Centos using Go 1.16.5, cpu:4 core, ram:32G*
 
 
 License
