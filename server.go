@@ -35,7 +35,7 @@ type redisServer struct {
 	*gnet.EventServer
 	onOpened func(c *Conn) (out []byte, action Action)
 	onClosed func(c *Conn, err error) (action Action)
-	handler  func(c *Conn, cmd resp.Command) (out []byte, action Action)
+	handler  func(cmd resp.Command, out []byte) ([]byte, Action)
 }
 
 type connBuffer struct {
@@ -76,6 +76,7 @@ func (rs *redisServer) React(frame []byte, c gnet.Conn) (out []byte, action gnet
 	cb.command = append(cb.command, cmds...)
 	cb.buf.Reset()
 	if len(lastbyte) == 0 {
+		var status Action
 		for len(cb.command) > 0 {
 			cmd := cb.command[0]
 			if len(cb.command) == 1 {
@@ -83,8 +84,7 @@ func (rs *redisServer) React(frame []byte, c gnet.Conn) (out []byte, action gnet
 			} else {
 				cb.command = cb.command[1:]
 			}
-			outOne, status := rs.handler(&Conn{Conn: c}, cmd)
-			out = append(out, outOne...)
+			out, status = rs.handler(cmd, out)
 			switch status {
 			case Close:
 				action = gnet.Close
@@ -104,7 +104,7 @@ func ListendAndServe(addr string,
 	options Options,
 	onOpened func(c *Conn) (out []byte, action Action),
 	onClosed func(c *Conn, err error) (action Action),
-	handler func(c *Conn, cmd resp.Command) (out []byte, action Action),
+	handler func(cmd resp.Command, out []byte) ([]byte, Action),
 ) error {
 	rs := &redisServer{
 		onOpened: onOpened,

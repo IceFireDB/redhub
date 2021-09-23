@@ -44,7 +44,8 @@ func main() {
 		func(c *redhub.Conn, err error) (action redhub.Action) {
 			return
 		},
-		func(c *redhub.Conn, cmd resp.Command) (out []byte, status redhub.Action) {
+		func(cmd resp.Command, out []byte) ([]byte, redhub.Action) {
+			var status redhub.Action
 			switch strings.ToLower(string(cmd.Args[0])) {
 			default:
 				out = resp.AppendError(out, "ERR unknown command '"+string(cmd.Args[0])+"'")
@@ -96,7 +97,7 @@ func main() {
 				out = resp.AppendBulk(out, cmd.Args[2])
 				out = resp.AppendBulkString(out, "")
 			}
-			return
+			return out, status
 		},
 	)
 	if err != nil {
