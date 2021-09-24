@@ -47,7 +47,7 @@ Go Version : go1.16.5 linux/amd64
 
 ```
 
-**Redis-server**: no disk persistence
+**Redis-server5.0.3**: no disk persistence
 
 ```
 $ ./redis-server --port 6379 --appendonly no
@@ -56,6 +56,17 @@ $ ./redis-server --port 6379 --appendonly no
 $ redis-benchmark -p 6379 -t set,get -n 10000000 -q -P 1024 -c 512
 SET: 1864975.75 requests per second
 GET: 2443792.75 requests per second
+```
+
+**Redis-server6.2.5**: no disk persistence
+
+```
+$ ./redis-server --port 6379 --appendonly no
+```
+```
+$ redis-benchmark -p 6379 -t set,get -n 10000000 -q -P 1024 -c 512
+SET: 1690617.12 requests per second
+GET: 2201188.50 requests per second
 ```
 **Redhub**: no disk persistence
 
@@ -67,7 +78,11 @@ $ redis-benchmark -p 6380 -t set,get -n 10000000 -q -P 1024 -c 512
 SET: 3033060.50 requests per second
 GET: 6169031.50 requests per second
 ```
-![dataset-simple0](https://user-images.githubusercontent.com/12872991/134624309-54d5f64d-4f8d-433a-8642-4bc2724b6dc7.png)
+<img 
+    src="https://user-images.githubusercontent.com/12872991/134629662-1d789503-ddab-4efd-a6b4-5620b5a9e8db.png" 
+    border="0" alt="REDHUB Benchmarks">
+<br>
+
 
 <!--
 ```
