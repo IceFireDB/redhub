@@ -5,11 +5,12 @@
  * @LastEditTime: 2021-09-24 14:40:18
  * @FilePath: /redhub/docs/index.md
 -->
-<!-- <p align="center">
-<img 
-    src="https://user-images.githubusercontent.com/12872991/134626503-c022bb8e-2d5c-4760-a470-f56ff8ef036f.png" 
-    border="0" alt="REDHUB">
-<br> -->
+<p align="center">
+    <img 
+        src="https://user-images.githubusercontent.com/12872991/134626503-c022bb8e-2d5c-4760-a470-f56ff8ef036f.png" 
+        border="0" alt="REDHUB" align="center">
+    <br>
+</p>
 
 # Features
 - Create a Redis compatible server with RawEpoll model in Go
@@ -79,10 +80,12 @@ $ redis-benchmark -p 6380 -t set,get -n 10000000 -q -P 1024 -c 512
 SET: 3033060.50 requests per second
 GET: 6169031.50 requests per second
 ```
-<img 
-    src="https://user-images.githubusercontent.com/12872991/134629662-1d789503-ddab-4efd-a6b4-5620b5a9e8db.png" 
-    border="0" alt="REDHUB Benchmarks">
-<br>
+<p align="center">
+    <img 
+        src="https://user-images.githubusercontent.com/12872991/134629662-1d789503-ddab-4efd-a6b4-5620b5a9e8db.png" 
+        border="0" alt="REDHUB Benchmarks">
+    <br>
+</p>
 
 
 <!--
