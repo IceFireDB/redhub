@@ -2,7 +2,7 @@
  * @Author: gitsrc
  * @Date: 2021-09-24 15:07:31
  * @LastEditors: gitsrc
- * @LastEditTime: 2021-09-24 16:03:47
+ * @LastEditTime: 2021-09-24 17:13:00
  * @FilePath: /redhub/docs/index.md
 -->
 <p align="center">
@@ -16,8 +16,10 @@
 <a href="https://pkg.go.dev/github.com/IceFireDB/redhub"><img src="https://img.shields.io/badge/api-reference-blue.svg?style=flat-square" alt="GoDoc"></a>
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FIceFireDB%2Fredhub.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FIceFireDB%2Fredhub?ref=badge_shield)
 
-High-performance Redis-Server framework, based on rawepoll model.
-* high performance
+High-performance Redis-Server multi-threaded framework, based on rawepoll model.
+* Ultra high performance
+* Fully multi-threaded support
+* Low CPU resource consumption
 * Compatible with redis protocol
 * Create a Redis compatible server with RawEpoll model in Go
 
