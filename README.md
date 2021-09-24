@@ -2,7 +2,7 @@
  * @Author: gitsrc
  * @Date: 2021-09-24 15:07:31
  * @LastEditors: gitsrc
- * @LastEditTime: 2021-09-24 15:37:13
+ * @LastEditTime: 2021-09-24 16:00:00
  * @FilePath: /redhub/README.md
 -->
 <p align="center">
@@ -10,10 +10,10 @@
         src="https://user-images.githubusercontent.com/12872991/134626503-c022bb8e-2d5c-4760-a470-f56ff8ef036f.png" 
         border="0" alt="REDHUB">
     <br>
-    <a href="https://pkg.go.dev/github.com/IceFireDB/redhub"><img src="https://img.shields.io/badge/api-reference-blue.svg?style=flat-square" alt="GoDoc"></a>
 </p>
 
 # RedHub
+<a href="https://pkg.go.dev/github.com/IceFireDB/redhub"><img src="https://img.shields.io/badge/api-reference-blue.svg?style=flat-square" alt="GoDoc"></a>
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FIceFireDB%2Fredhub.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FIceFireDB%2Fredhub?ref=badge_shield)
 
 High-performance Redis-Server framework, based on rawepoll model.
