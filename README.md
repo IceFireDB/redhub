@@ -78,7 +78,18 @@ $ redis-benchmark -p 6379 -t set,get -n 10000000 -q -P 1024 -c 512
 SET: 1690617.12 requests per second
 GET: 2201188.50 requests per second
 ```
-## Redhub: no disk persistence
+
+## RedCon: no disk persistence
+
+```
+$ go run example/clone.go
+```
+```
+$ redis-benchmark -p 6380 -t set,get -n 10000000 -q -P 1024 -c 512
+SET: 1636125.62 requests per second
+GET: 4541326.50 requests per second
+```
+## RedHub: no disk persistence
 
 ```
 $ go run example/server.go
@@ -91,7 +102,7 @@ GET: 6169031.50 requests per second
 
 <p align="center">
     <img 
-        src="https://user-images.githubusercontent.com/12872991/134629662-1d789503-ddab-4efd-a6b4-5620b5a9e8db.png" 
+        src="https://user-images.githubusercontent.com/12872991/134651210-9724ef21-0138-49f6-ad50-7cf3fd188685.png" 
         border="0" alt="REDHUB Benchmarks">
     <br>
 </p>
