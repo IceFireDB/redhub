@@ -2,7 +2,7 @@
  * @Author: gitsrc
  * @Date: 2021-09-24 15:07:31
  * @LastEditors: gitsrc
- * @LastEditTime: 2021-09-24 15:11:33
+ * @LastEditTime: 2021-09-24 15:37:13
  * @FilePath: /redhub/README.md
 -->
 <p align="center">
@@ -14,6 +14,7 @@
 </p>
 
 # RedHub
+High-performance Redis-Server framework, based on rawepoll model.
 * high performance
 * Compatible with redis protocol
 * Create a Redis compatible server with RawEpoll model in Go
