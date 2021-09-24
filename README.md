@@ -2,7 +2,7 @@
  * @Author: gitsrc
  * @Date: 2021-09-24 15:07:31
  * @LastEditors: gitsrc
- * @LastEditTime: 2021-09-24 16:00:00
+ * @LastEditTime: 2021-09-24 16:04:17
  * @FilePath: /redhub/README.md
 -->
 <p align="center">
@@ -102,15 +102,8 @@ GET: 5643341.00 requests per second
 ```
 -->
 
-
-License
--------
-Redhub source code is available under the Apache 2.0 [License](/LICENSE).
-
-
-## Disclaimers
+# Disclaimers
 When you use this software, you have agreed and stated that the author, maintainer and contributor of this software are not responsible for any risks, costs or problems you encounter. If you find a software defect or BUG, ​​please submit a patch to help improve it!
 
-
-## License
+# License
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FIceFireDB%2Fredhub.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FIceFireDB%2Fredhub?ref=badge_large)
