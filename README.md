@@ -39,7 +39,7 @@ Here's a full example of a Redis clone that accepts:
 - PING
 - QUIT
 
-You can run this example from a terminal:
+You can run this example in terminal:
 
 ```sh
 go run example/server.go
