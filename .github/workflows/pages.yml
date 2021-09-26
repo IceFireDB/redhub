@@ -3,7 +3,7 @@ name: Pages
 on:
   push:
     branches:
-      - master  # Set a branch name to trigger deployment
+      - main  # Set a branch name to trigger deployment
 
 jobs:
   deploy:
