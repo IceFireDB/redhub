@@ -35,8 +35,11 @@ func main() {
 	}
 
 	protoAddr := fmt.Sprintf("%s://%s", network, addr)
-	option := redhub.Options{}
-	option.Multicore = multicore
+	option := redhub.Options{
+		Multicore: multicore,
+		ReusePort: false,
+	}
+
 	rh := redhub.NewRedHub(
 		func(c *redhub.Conn) (out []byte, action redhub.Action) {
 			return
@@ -100,7 +103,7 @@ func main() {
 			return out, status
 		},
 	)
-	go log.Printf("started server at %s", addr)
+	log.Printf("started server at %s", addr)
 	err := redhub.ListendAndServe(protoAddr, option, rh)
 	if err != nil {
 		log.Fatal(err)

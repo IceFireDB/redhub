@@ -3,6 +3,7 @@ package redhub
 import (
 	"bytes"
 	"sync"
+	"time"
 
 	"github.com/IceFireDB/redhub/pkg/resp"
 	"github.com/panjf2000/gnet"
@@ -26,7 +27,56 @@ type Conn struct {
 }
 
 type Options struct {
-	gnet.Options
+	// Multicore indicates whether the server will be effectively created with multi-cores, if so,
+	// then you must take care with synchronizing memory between all event callbacks, otherwise,
+	// it will run the server with single thread. The number of threads in the server will be automatically
+	// assigned to the value of logical CPUs usable by the current process.
+	Multicore bool
+
+	// LockOSThread is used to determine whether each I/O event-loop is associated to an OS thread, it is useful when you
+	// need some kind of mechanisms like thread local storage, or invoke certain C libraries (such as graphics lib: GLib)
+	// that require thread-level manipulation via cgo, or want all I/O event-loops to actually run in parallel for a
+	// potential higher performance.
+	LockOSThread bool
+
+	// ReadBufferCap is the maximum number of bytes that can be read from the client when the readable event comes.
+	// The default value is 64KB, it can be reduced to avoid starving subsequent client connections.
+	//
+	// Note that ReadBufferCap will be always converted to the least power of two integer value greater than
+	// or equal to its real amount.
+	ReadBufferCap int
+
+	// LB represents the load-balancing algorithm used when assigning new connections.
+	LB gnet.LoadBalancing
+
+	// NumEventLoop is set up to start the given number of event-loop goroutine.
+	// Note: Setting up NumEventLoop will override Multicore.
+	NumEventLoop int
+
+	// ReusePort indicates whether to set up the SO_REUSEPORT socket option.
+	ReusePort bool
+
+	// Ticker indicates whether the ticker has been set up.
+	Ticker bool
+
+	// TCPKeepAlive sets up a duration for (SO_KEEPALIVE) socket option.
+	TCPKeepAlive time.Duration
+
+	// TCPNoDelay controls whether the operating system should delay
+	// packet transmission in hopes of sending fewer packets (Nagle's algorithm).
+	//
+	// The default is true (no delay), meaning that data is sent
+	// as soon as possible after a Write.
+	TCPNoDelay gnet.TCPSocketOpt
+
+	// SocketRecvBuffer sets the maximum socket receive buffer in bytes.
+	SocketRecvBuffer int
+
+	// SocketSendBuffer sets the maximum socket send buffer in bytes.
+	SocketSendBuffer int
+
+	// ICodec encodes and decodes TCP stream.
+	Codec gnet.ICodec
 }
 
 func NewRedHub(
@@ -111,5 +161,20 @@ func (rs *redHub) React(frame []byte, c gnet.Conn) (out []byte, action gnet.Acti
 }
 
 func ListendAndServe(addr string, options Options, rh *redHub) error {
-	return gnet.Serve(rh, addr, gnet.WithOptions(options.Options))
+	serveOptions := gnet.Options{
+		Multicore:        options.Multicore,
+		LockOSThread:     options.LockOSThread,
+		ReadBufferCap:    options.ReadBufferCap,
+		LB:               options.LB,
+		NumEventLoop:     options.NumEventLoop,
+		ReusePort:        options.ReusePort,
+		Ticker:           options.Ticker,
+		TCPKeepAlive:     options.TCPKeepAlive,
+		TCPNoDelay:       options.TCPNoDelay,
+		SocketRecvBuffer: options.SocketRecvBuffer,
+		SocketSendBuffer: options.SocketSendBuffer,
+		Codec:            options.Codec,
+	}
+
+	return gnet.Serve(rh, addr, gnet.WithOptions(serveOptions))
 }
