@@ -8,6 +8,8 @@ import (
 	"github.com/panjf2000/gnet"
 )
 
+type Action int
+
 const (
 	// None indicates that no action should occur following an event.
 	None Action = iota
@@ -23,7 +25,6 @@ type Conn struct {
 	gnet.Conn
 }
 
-type Action int
 type Options struct {
 	gnet.Options
 }
