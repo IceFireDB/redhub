@@ -23,7 +23,7 @@ func main() {
 	var pprofDebug bool
 	var pprofAddr string
 	flag.StringVar(&network, "network", "tcp", "server network (default \"tcp\")")
-	flag.StringVar(&addr, "addr", ":6380", "server addr (default \":6380\")")
+	flag.StringVar(&addr, "addr", "127.0.0.1:6380", "server addr (default \":6380\")")
 	flag.BoolVar(&multicore, "multicore", true, "multicore")
 	flag.BoolVar(&pprofDebug, "pprofDebug", false, "open pprof")
 	flag.StringVar(&pprofAddr, "pprofAddr", ":8888", "pprof address")
@@ -103,7 +103,7 @@ func main() {
 			return out, status
 		},
 	)
-	log.Printf("started server at %s", addr)
+	log.Printf("started redhub server at %s", addr)
 	err := redhub.ListendAndServe(protoAddr, option, rh)
 	if err != nil {
 		log.Fatal(err)
