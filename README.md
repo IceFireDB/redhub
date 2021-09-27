@@ -2,7 +2,7 @@
  * @Author: gitsrc
  * @Date: 2021-09-24 15:07:31
  * @LastEditors: gitsrc
- * @LastEditTime: 2021-09-27 11:06:38
+ * @LastEditTime: 2021-09-27 11:14:43
  * @FilePath: /redhub/README.md
 -->
 <p align="center">
@@ -60,7 +60,7 @@ Go Version : go1.16.5 linux/amd64
 ### 【Redis-server5.0.3】 Single-threaded, no disk persistence.
 
 ```
-$ ./redis-server --port 6379 --appendonly no
+$ ./redis-server --port 6380 --appendonly no
 ```
 ```
 $ redis-benchmark -h 127.0.0.1 -p 6380 -n 50000000 -t set,get -c 512 -P 1024 -q
@@ -71,7 +71,7 @@ GET: 3096742.25 requests per second
 ### 【Redis-server6.2.5】 Single-threaded, no disk persistence.
 
 ```
-$ ./redis-server --port 6379 --appendonly no
+$ ./redis-server --port 6380 --appendonly no
 ```
 ```
 $ redis-benchmark -h 127.0.0.1 -p 6380 -n 50000000 -t set,get -c 512 -P 1024 -q
@@ -87,7 +87,7 @@ io-threads 8
 $ ./redis-server redis.conf
 ```
 ```
-$ redis-benchmark -h 127.0.0.1 -p 6380 -n 50000000 -t set,get -c 512 -P 1024 -q
+$ redis-benchmark -h 127.0.0.1 -p 6379 -n 50000000 -t set,get -c 512 -P 1024 -q
 SET: 1944692.88 requests per second
 GET: 2375184.00 requests per second
 ```
