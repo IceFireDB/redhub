@@ -7,7 +7,7 @@
 -->
 <p align="center">
     <img 
-        src="https://raw.githubusercontent.com/IceFireDB/IceFireDB-Proxy/main/docs/logo.png" 
+        src="https://user-images.githubusercontent.com/12872991/134626503-c022bb8e-2d5c-4760-a470-f56ff8ef036f.png" 
         border="0" alt="REDHUB">
     <br>
 </p>
