@@ -16,7 +16,7 @@
 <a href="https://pkg.go.dev/github.com/IceFireDB/redhub"><img src="https://img.shields.io/badge/api-reference-blue.svg?style=flat-square" alt="GoDoc"></a>
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FIceFireDB%2Fredhub.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FIceFireDB%2Fredhub?ref=badge_shield)
 
-High-performance Redis-Server multi-threaded framework, based on RawEpoll model.
+High-performance RESP-Server multi-threaded framework, based on RawEpoll model.
 * Ultra high performance
 * Fully multi-threaded support
 * Low CPU resource consumption
