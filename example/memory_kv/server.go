@@ -20,11 +20,13 @@ func main() {
 	var network string
 	var addr string
 	var multicore bool
+	var reusePort bool
 	var pprofDebug bool
 	var pprofAddr string
 	flag.StringVar(&network, "network", "tcp", "server network (default \"tcp\")")
-	flag.StringVar(&addr, "addr", ":6380", "server addr (default \":6380\")")
+	flag.StringVar(&addr, "addr", "127.0.0.1:6380", "server addr (default \":6380\")")
 	flag.BoolVar(&multicore, "multicore", true, "multicore")
+	flag.BoolVar(&reusePort, "reusePort", false, "reusePort")
 	flag.BoolVar(&pprofDebug, "pprofDebug", false, "open pprof")
 	flag.StringVar(&pprofAddr, "pprofAddr", ":8888", "pprof address")
 	flag.Parse()
@@ -35,8 +37,11 @@ func main() {
 	}
 
 	protoAddr := fmt.Sprintf("%s://%s", network, addr)
-	option := redhub.Options{}
-	option.Multicore = multicore
+	option := redhub.Options{
+		Multicore: multicore,
+		ReusePort: reusePort,
+	}
+
 	rh := redhub.NewRedHub(
 		func(c *redhub.Conn) (out []byte, action redhub.Action) {
 			return
@@ -100,7 +105,7 @@ func main() {
 			return out, status
 		},
 	)
-	go log.Printf("started server at %s", addr)
+	log.Printf("started redhub server at %s", addr)
 	err := redhub.ListendAndServe(protoAddr, option, rh)
 	if err != nil {
 		log.Fatal(err)
