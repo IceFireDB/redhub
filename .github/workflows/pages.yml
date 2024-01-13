@@ -2,8 +2,10 @@ name: Pages
 
 on:
   push:
-    branches:
-      - main  # Set a branch name to trigger deployment
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+    
 
 jobs:
   deploy:
@@ -24,3 +26,18 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./doc
           enable_jekyll: true
+          
+  build-example-kv:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: 1.18
+
+    - name: Build
+      run: |
+        cd example/memory_kv/
+        go build
