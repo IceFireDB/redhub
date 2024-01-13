@@ -1,10 +1,3 @@
-<!--
- * @Author: gitsrc
- * @Date: 2021-09-24 15:07:31
- * @LastEditors: gitsrc
- * @LastEditTime: 2021-09-27 11:18:10
- * @FilePath: /redhub/README.md
--->
 <p align="center">
     <img 
         src="https://user-images.githubusercontent.com/12872991/134626503-c022bb8e-2d5c-4760-a470-f56ff8ef036f.png" 
@@ -42,7 +35,7 @@ Here is a simple framework usage example,support the following redis commands:
 You can run this example in terminal:
 
 ```sh
-go run example/server.go
+go run example/memory_kv/server.go
 ```
 
 # Benchmarks
