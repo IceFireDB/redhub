@@ -1,6 +1,6 @@
 module github.com/IceFireDB/redhub
 
-go 1.22
+go 1.24.0
 
 require github.com/panjf2000/gnet v1.6.7
 
