@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y redis-tools netcat
+        sudo apt-get install -y redis-tools netcat-openbsd
 
     - name: Run benchmark
       run: |
