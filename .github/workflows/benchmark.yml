@@ -51,7 +51,7 @@ jobs:
         
         # Run benchmark tests
         echo "Running benchmark tests..."
-        redis-benchmark -h 127.0.0.1 -p 6380 -n 50000 -t set,get -c 512 -P 1024 -q
+        redis-benchmark -h 127.0.0.1 -p 6380 -n 5000000 -t set,get -c 512 -P 1024 -q
         
         # Stop server
         kill $SERVER_PID
