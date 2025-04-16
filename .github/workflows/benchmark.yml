@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y redis-tools
+        sudo apt-get install -y redis-tools netcat
 
     - name: Run benchmark
       run: |
@@ -30,8 +30,19 @@ jobs:
         go run server.go &
         SERVER_PID=$!
         
-        # Wait for server to start
-        sleep 5
+        # Wait for server to be ready
+        for i in {1..10}; do
+          if nc -z 127.0.0.1 6380; then
+            break
+          fi
+          sleep 1
+        done
+        
+        # Verify server is ready
+        if ! nc -z 127.0.0.1 6380; then
+          echo "Server failed to start"
+          exit 1
+        fi
         
         # Run benchmark tests
         echo "Running benchmark tests..."
