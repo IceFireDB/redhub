@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/panjf2000/gnet v1.6.7
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.10.0
 )
 
 require (
