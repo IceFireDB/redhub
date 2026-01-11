@@ -1,3 +1,57 @@
+// Package redhub provides a high-performance RESP (Redis Serialization Protocol) server framework.
+// It is built on top of the gnet library and uses the RawEpoll model to achieve ultra-high throughput
+// with multi-threaded support while maintaining low CPU resource consumption.
+//
+// RedHub is designed to help developers create Redis-compatible servers with minimal code.
+// It supports the full RESP2 protocol and is compatible with standard Redis clients.
+//
+// # Basic Usage
+//
+// To create a simple Redis-compatible server:
+//
+//	rh := redhub.NewRedHub(
+//	    func(c *redhub.Conn) (out []byte, action redhub.Action) {
+//	        // Called when a new connection is established
+//	        return nil, redhub.None
+//	    },
+//	    func(c *redhub.Conn, err error) (action redhub.Action) {
+//	        // Called when a connection is closed
+//	        return redhub.None
+//	    },
+//	    func(cmd resp.Command, out []byte) ([]byte, redhub.Action) {
+//	        // Called for each parsed command
+//	        cmdName := strings.ToLower(string(cmd.Args[0]))
+//	        switch cmdName {
+//	        case "ping":
+//	            return resp.AppendString(out, "PONG"), redhub.None
+//	        default:
+//	            return resp.AppendError(out, "ERR unknown command"), redhub.None
+//	        }
+//	    },
+//	)
+//
+//	err := redhub.ListenAndServe("tcp://127.0.0.1:6379", redhub.Options{
+//	    Multicore: true,
+//	}, rh)
+//
+// # Architecture
+//
+// RedHub implements an event-driven architecture using multiple event loops that run in parallel
+// (in multi-core mode). Each connection has an associated buffer for command accumulation,
+// and commands are parsed using the RESP protocol parser from the resp package.
+//
+// # Threading Model
+//
+// - Single-core mode: All connections are handled by a single event loop
+// - Multi-core mode: Multiple event loops distribute connections using load balancing strategies
+// - Connection Buffering: Each connection maintains its own buffer and command queue
+// - Thread Safety: Uses RWMutex for connection map synchronization
+//
+// # Performance
+//
+// RedHub is optimized for high performance and can handle millions of requests per second
+// depending on the hardware and configuration. See the benchmarks in the project README
+// for detailed performance comparisons with Redis and other implementations.
 package redhub
 
 import (
@@ -9,42 +63,140 @@ import (
 	"github.com/panjf2000/gnet/v2"
 )
 
-// Action represents the type of action to be taken after an event
+// Action represents the type of action to be taken after an event handler completes.
+// Event handlers (OnOpen, OnClose, Handler) return an Action value to control
+// the server's behavior after processing the event.
 type Action int
 
 const (
-	// None indicates that no action should occur following an event
+	// None indicates that no action should be taken following an event.
+	// The connection remains open and the server continues processing.
 	None Action = iota
-	// Close indicates that the connection should be closed
+
+	// Close indicates that the connection should be closed.
+	// This is typically returned when processing a QUIT command or when
+	// an error condition requires closing the connection.
 	Close
-	// Shutdown indicates that the server should be shut down
+
+	// Shutdown indicates that the entire server should be shut down.
+	// This is rarely used in normal operation but can be used to implement
+	// graceful shutdown functionality.
 	Shutdown
 )
 
-// Conn wraps a gnet.Conn
+// Conn wraps a gnet.Conn and provides additional functionality for connection management.
+// It is passed to the OnOpen and OnClose handlers to allow application code to
+// store connection-specific data and perform connection-level operations.
 type Conn struct {
 	gnet.Conn
 }
 
-// Options defines the configuration options for the RedHub server
-type Options struct {
-	Multicore        bool
-	LockOSThread     bool
-	ReadBufferCap    int
-	LB               gnet.LoadBalancing
-	NumEventLoop     int
-	ReusePort        bool
-	Ticker           bool
-	TCPKeepAlive     time.Duration
-	TCPKeepCount     int
-	TCPKeepInterval  time.Duration
-	TCPNoDelay       gnet.TCPSocketOpt
-	SocketRecvBuffer int
-	SocketSendBuffer int
-	EdgeTriggeredIO  bool
+// SetContext sets the connection-specific context data.
+// This can be used to store application-specific data such as authentication state,
+// selected database, or any other per-connection information.
+//
+// The context is accessible via the Context() method and is automatically
+// cleaned up when the connection is closed.
+func (c *Conn) SetContext(ctx interface{}) {
+	c.Conn.SetContext(ctx)
 }
 
-// RedHub represents the main server structure
+// Context returns the connection-specific context data.
+// Returns the data that was previously set using SetContext.
+// Returns nil if no context has been set.
+func (c *Conn) Context() interface{} {
+	return c.Conn.Context()
+}
+
+// Options defines the configuration options for the RedHub server.
+// These options control various aspects of server behavior including threading,
+// buffer sizes, network settings, and performance tuning.
+//
+// Most options have sensible defaults and only need to be changed for specific use cases.
+type Options struct {
+	// Multicore enables multi-core support. When true, multiple event loops are created
+	// and connections are distributed across them using the configured load balancing strategy.
+	// This is recommended for production environments with high connection counts.
+	// Default: false
+	Multicore bool
+
+	// LockOSThread locks the OS thread for each event loop. This can improve performance
+	// in certain scenarios but may reduce the overall number of connections that can be handled.
+	// Default: false
+	LockOSThread bool
+
+	// ReadBufferCap sets the capacity of the read buffer in bytes. Larger buffers can
+	// improve throughput for workloads with large requests or responses but use more memory.
+	// Default: 64KB
+	ReadBufferCap int
+
+	// LB specifies the load balancing strategy used to distribute connections across
+	// event loops when Multicore is enabled. Available strategies include:
+	//   - RoundRobin: Distribute connections evenly across loops
+	//   - LeastConnections: Assign to loop with fewest active connections
+	//   - SourceAddrHash: Hash based on client address
+	// Default: gnet.RoundRobin
+	LB gnet.LoadBalancing
+
+	// NumEventLoop specifies the number of event loops to create. If 0, the number
+	// of CPU cores is used. This option is only effective when Multicore is true.
+	// Default: 0 (runtime.NumCPU())
+	NumEventLoop int
+
+	// ReusePort enables the SO_REUSEPORT socket option, allowing multiple sockets
+	// to bind to the same address and port. This can improve connection acceptance
+	// performance but is only available on certain operating systems.
+	// Default: false
+	ReusePort bool
+
+	// Ticker enables periodic ticker events. When true, the OnTick handler is called
+	// at regular intervals. Useful for implementing periodic tasks such as cleanup,
+	// stats collection, or timeout handling.
+	// Default: false
+	Ticker bool
+
+	// TCPKeepAlive sets the TCP keep-alive interval. If non-zero, TCP keep-alive
+	// probes are sent at the specified interval to detect dead connections.
+	// Default: 0 (disabled)
+	TCPKeepAlive time.Duration
+
+	// TCPKeepCount sets the number of unacknowledged keep-alive probes before
+	// considering the connection dead. Only effective if TCPKeepAlive is set.
+	// Default: 0 (system default)
+	TCPKeepCount int
+
+	// TCPKeepInterval sets the interval between keep-alive probes when they are
+	// not acknowledged. Only effective if TCPKeepAlive is set.
+	// Default: 0 (system default)
+	TCPKeepInterval time.Duration
+
+	// TCPNoDelay sets the TCP_NODELAY socket option. When true, disables Nagle's
+	// algorithm, sending data immediately rather than buffering it. This reduces
+	// latency but may increase network overhead.
+	// Default: gnet.TCPSocketOpt(1) (enabled)
+	TCPNoDelay gnet.TCPSocketOpt
+
+	// SocketRecvBuffer sets the size of the socket receive buffer in bytes.
+	// Larger buffers can handle bursts of data but use more memory.
+	// Default: 0 (system default)
+	SocketRecvBuffer int
+
+	// SocketSendBuffer sets the size of the socket send buffer in bytes.
+	// Larger buffers can handle bursty sends but use more memory.
+	// Default: 0 (system default)
+	SocketSendBuffer int
+
+	// EdgeTriggeredIO enables edge-triggered I/O mode when available.
+	// This can reduce the number of system calls but requires careful handling.
+	// Default: false
+	EdgeTriggeredIO bool
+}
+
+// RedHub represents the main server structure that manages connections and command processing.
+// It implements the gnet.EventHandler interface and is typically created using NewRedHub.
+//
+// RedHub maintains a map of connections to their associated buffers, allowing each
+// connection to accumulate data across multiple reads until complete commands are parsed.
 type RedHub struct {
 	onOpened     func(c *Conn) (out []byte, action Action)
 	onClosed     func(c *Conn, err error) (action Action)
@@ -53,13 +205,34 @@ type RedHub struct {
 	connSync     *sync.RWMutex
 }
 
-// connBuffer holds the buffer and commands for each connection
+// connBuffer holds the buffer and commands for each connection.
+// This structure is maintained internally by RedHub and is not exposed to users.
+//
+// The buffer accumulates incoming data until complete commands can be parsed.
+// Once commands are parsed, they are stored in the command slice for processing.
 type connBuffer struct {
-	buf     bytes.Buffer
-	command []resp.Command
+	buf     bytes.Buffer   // Accumulates incoming data from the network
+	command []resp.Command // Stores parsed commands waiting to be processed
 }
 
-// NewRedHub creates a new RedHub instance
+// NewRedHub creates a new RedHub instance with the specified event handlers.
+//
+// The handlers allow application code to respond to connection lifecycle events
+// and process incoming commands.
+//
+// Parameters:
+//   - onOpened: Called when a new connection is established. The connection
+//     object is provided, allowing initialization of connection-specific data.
+//     Returns any initial response data and an action (typically None).
+//   - onClosed: Called when a connection is closed. The connection object and
+//     any error that caused the close are provided. Returns an action.
+//   - handler: Called for each parsed command from the connection. The command
+//     contains the raw RESP bytes and parsed arguments. The response buffer
+//     is provided for building the response. Returns the response data and
+//     an action (None, Close, or Shutdown).
+//
+// The returned RedHub instance can then be passed to ListenAndServe to start
+// the server.
 func NewRedHub(
 	onOpened func(c *Conn) (out []byte, action Action),
 	onClosed func(c *Conn, err error) (action Action),
@@ -74,16 +247,28 @@ func NewRedHub(
 	}
 }
 
-// OnBoot fires when the engine is ready for accepting connections
+// OnBoot is called by gnet when the server is ready to accept connections.
+// This is part of the gnet.EventHandler interface.
+//
+// The engine parameter provides access to server-wide operations.
+// Typically returns gnet.None to indicate normal startup.
 func (rs *RedHub) OnBoot(eng gnet.Engine) (action gnet.Action) {
 	return gnet.None
 }
 
-// OnShutdown fires when the engine is being shut down
+// OnShutdown is called by gnet when the server is shutting down.
+// This is part of the gnet.EventHandler interface.
+//
+// The engine parameter provides access to server-wide operations during shutdown.
+// This can be used to perform cleanup tasks or notify application code.
 func (rs *RedHub) OnShutdown(eng gnet.Engine) {
 }
 
-// OnOpen fires when a new connection is opened
+// OnOpen is called by gnet when a new connection is opened.
+// This is part of the gnet.EventHandler interface.
+//
+// A new buffer is created for the connection to accumulate incoming data,
+// and then the application's onOpened handler is called.
 func (rs *RedHub) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 	rs.connSync.Lock()
 	rs.redHubBufMap[c] = new(connBuffer)
@@ -92,7 +277,11 @@ func (rs *RedHub) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 	return out, gnet.Action(act)
 }
 
-// OnClose fires when a connection is closed
+// OnClose is called by gnet when a connection is closed.
+// This is part of the gnet.EventHandler interface.
+//
+// The connection's buffer is removed from the map to free memory,
+// and then the application's onClosed handler is called.
 func (rs *RedHub) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	rs.connSync.Lock()
 	delete(rs.redHubBufMap, c)
@@ -100,7 +289,17 @@ func (rs *RedHub) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	return gnet.Action(rs.onClosed(&Conn{Conn: c}, err))
 }
 
-// OnTraffic fires when a socket receives data from the remote
+// OnTraffic is called by gnet when data is received from a connection.
+// This is part of the gnet.EventHandler interface and is the core
+// of the request processing pipeline.
+//
+// The function:
+// 1. Reads all available data from the connection
+// 2. Appends it to the connection's buffer
+// 3. Parses complete commands from the buffer
+// 4. Processes each command through the handler
+// 5. Sends responses back to the client
+// 6. Handles incomplete commands by keeping remaining data in the buffer
 func (rs *RedHub) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	rs.connSync.RLock()
 	cb, ok := rs.redHubBufMap[c]
@@ -152,12 +351,39 @@ func (rs *RedHub) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	return gnet.None
 }
 
-// OnTick fires immediately after the engine starts
+// OnTick is called by gnet on a periodic timer when Ticker is enabled.
+// This is part of the gnet.EventHandler interface.
+//
+// Returns the delay until the next tick and an action.
+// Typically returns (0, gnet.None) to disable further ticks.
 func (rs *RedHub) OnTick() (delay time.Duration, action gnet.Action) {
 	return 0, gnet.None
 }
 
-// ListenAndServe starts the RedHub server
+// ListenAndServe starts the RedHub server on the specified address with the given options.
+//
+// This is the main entry point for starting a RedHub server. The address should be
+// in the format "tcp://host:port" (e.g., "tcp://127.0.0.1:6379").
+//
+// The function blocks until the server is stopped, either by a Shutdown action or
+// by an error.
+//
+// Parameters:
+//   - addr: The address to listen on in format "scheme://host:port"
+//   - options: Server configuration options
+//   - rh: The RedHub instance created by NewRedHub
+//
+// Returns an error if the server fails to start. Otherwise, blocks until shutdown.
+//
+// Example:
+//
+//	err := redhub.ListenAndServe("tcp://127.0.0.1:6379", redhub.Options{
+//	    Multicore: true,
+//	    NumEventLoop: 8,
+//	}, rh)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
 func ListenAndServe(addr string, options Options, rh *RedHub) error {
 	var opts []gnet.Option
 

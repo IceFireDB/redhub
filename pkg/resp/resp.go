@@ -1,3 +1,74 @@
+// Package resp implements the Redis Serialization Protocol (RESP) as defined in the
+// Redis protocol specification (https://redis.io/docs/reference/protocol-spec/).
+//
+// RESP supports five data types:
+//
+//   - Simple Strings: "+OK\r\n" - Simple strings are used to transmit non-binary strings
+//   - Errors: "-Error message\r\n" - Errors are used to report errors to the client
+//   - Integers: ":1000\r\n" - Integers are used to represent 64-bit signed integers
+//   - Bulk Strings: "$6\r\nfoobar\r\n" - Bulk strings are used to transmit binary-safe strings
+//   - Arrays: "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n" - Arrays are used to hold collections of RESP types
+//
+// This package provides functions for both parsing RESP messages (reading) and
+// serializing Go types to RESP format (writing/appending).
+//
+// # Reading RESP Messages
+//
+// Use ReadNextRESP to parse a single RESP value from a byte slice:
+//
+//	b := []byte("*2\r\n$3\r\nGET\r\n$3\r\nkey\r\n")
+//	n, resp := resp.ReadNextRESP(b)
+//	// resp.Type == resp.Array
+//	// resp.Count == 2
+//
+// Use ReadNextCommand to parse commands with arguments:
+//
+//	packet := []byte("*2\r\n$3\r\nGET\r\n$3\r\nkey\r\n")
+//	complete, args, kind, leftover, err := resp.ReadNextCommand(packet, nil)
+//	// args == [][]byte{[]byte("GET"), []byte("key")}
+//
+// # Writing RESP Messages
+//
+// Use the Append* functions to serialize Go types to RESP format:
+//
+//	var out []byte
+//
+//	// Simple string
+//	out = resp.AppendString(out, "OK") // +OK\r\n
+//
+//	// Bulk string
+//	out = resp.AppendBulkString(out, "hello") // $5\r\nhello\r\n
+//
+//	// Integer
+//	out = resp.AppendInt(out, 42) // :42\r\n
+//
+//	// Array
+//	out = resp.AppendArray(out, 3)
+//	out = resp.AppendBulkString(out, "item1")
+//	out = resp.AppendBulkString(out, "item2")
+//	out = resp.AppendBulkString(out, "item3")
+//
+//	// Null value
+//	out = resp.AppendNull(out) // $-1\r\n
+//
+// # Type Conversion
+//
+// Use AppendAny to automatically convert any Go type to RESP format:
+//
+//	out = resp.AppendAny(out, "string")        // Bulk string
+//	out = resp.AppendAny(out, 123)              // Bulk string
+//	out = resp.AppendAny(out, true)             // Bulk string "1"
+//	out = resp.AppendAny(out, nil)              // Null
+//	out = resp.AppendAny(out, errors.New("ERR")) // Error
+//	out = resp.AppendAny(out, []int{1, 2, 3})   // Array
+//	out = resp.AppendAny(out, map[string]int{"a": 1}) // Array with key/value pairs
+//
+// # Protocol Support
+//
+// This package supports three protocol types:
+//   - RESP (Redis): Standard Redis protocol (commands starting with '*')
+//   - Tile38 Native: Native Tile38 protocol (commands starting with '$')
+//   - Telnet: Plain text commands
 package resp
 
 import (
@@ -8,27 +79,56 @@ import (
 	"strings"
 )
 
-// Type of RESP
+// Type represents the RESP data type identifier.
+// Each RESP type has a corresponding type marker character.
 type Type byte
 
-// Various RESP kinds
+// RESP type identifier constants. These are the first byte of any RESP message.
 const (
+	// Integer represents RESP integer type: ":1000\r\n"
+	// Used to transmit 64-bit signed integers.
 	Integer = ':'
-	String  = '+'
-	Bulk    = '$'
-	Array   = '*'
-	Error   = '-'
+
+	// String represents RESP simple string type: "+OK\r\n"
+	// Used to transmit non-binary strings that don't contain \r or \n.
+	String = '+'
+
+	// Bulk represents RESP bulk string type: "$6\r\nfoobar\r\n"
+	// Used to transmit binary-safe strings. Can be null: "$-1\r\n"
+	Bulk = '$'
+
+	// Array represents RESP array type: "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n"
+	// Used to transmit collections of RESP values. Can be null: "*-1\r\n"
+	Array = '*'
+
+	// Error represents RESP error type: "-Error message\r\n"
+	// Used to transmit error messages to the client.
+	Error = '-'
 )
 
-// RESP ...
+// RESP represents a parsed RESP value.
+// It contains the type identifier, raw bytes, parsed data, and element count for arrays.
 type RESP struct {
-	Type  Type
-	Raw   []byte
-	Data  []byte
-	Count int
+	Type  Type   // Type is the RESP type identifier
+	Raw   []byte // Raw is the complete RESP message including type marker and terminators
+	Data  []byte // Data is the parsed content (without type marker and terminators)
+	Count int    // Count is the number of elements for Array type
 }
 
-// ForEach iterates over each Array element
+// ForEach iterates over each element of an Array-type RESP value.
+// The iter function is called for each element in the array.
+// If iter returns false, iteration stops immediately.
+//
+// This is only valid for RESP values with Type == Array.
+// Calling ForEach on non-array RESP values has no effect.
+//
+// Example:
+//
+//	resp := &RESP{Type: Array, Count: 2, Data: []byte("$3\r\nfoo\r\n$3\r\nbar\r\n")}
+//	resp.ForEach(func(r RESP) bool {
+//	    fmt.Printf("Element: %s\n", r.Data)
+//	    return true
+//	})
 func (r *RESP) ForEach(iter func(resp RESP) bool) {
 	data := r.Data
 	for i := 0; i < r.Count; i++ {
@@ -40,8 +140,24 @@ func (r *RESP) ForEach(iter func(resp RESP) bool) {
 	}
 }
 
-// ReadNextRESP returns the next resp in b and returns the number of bytes the
-// took up the result.
+// ReadNextRESP parses the next RESP value from a byte slice.
+// It returns the number of bytes consumed and the parsed RESP value.
+//
+// If the input is incomplete or invalid, returns (0, RESP{}).
+//
+// This function handles all RESP types:
+//   - Integer: Parses the integer value
+//   - Simple String/Error: Returns the data as-is
+//   - Bulk String: Parses the length and data, handles null bulk strings
+//   - Array: Recursively parses array elements
+//
+// Example:
+//
+//	b := []byte(":42\r\n")
+//	n, resp := resp.ReadNextRESP(b)
+//	// n == 4
+//	// resp.Type == resp.Integer
+//	// resp.Data == []byte("42")
 func ReadNextRESP(b []byte) (n int, resp RESP) {
 	if len(b) == 0 {
 		return 0, RESP{} // no data to read
@@ -133,29 +249,49 @@ func ReadNextRESP(b []byte) (n int, resp RESP) {
 	return len(resp.Raw), resp
 }
 
-// Kind is the kind of command
+// Kind represents the type of command protocol detected.
+// Used by ReadNextCommand to indicate which protocol was used.
 type Kind int
 
 const (
-	// Redis is returned for Redis protocol commands
+	// Redis is returned for standard Redis RESP protocol commands.
+	// Commands start with '*' (array marker).
 	Redis Kind = iota
-	// Tile38 is returnd for Tile38 native protocol commands
+
+	// Tile38 is returned for Tile38 native protocol commands.
+	// Commands start with '$' (bulk string marker).
 	Tile38
-	// Telnet is returnd for plain telnet commands
+
+	// Telnet is returned for plain text commands.
+	// Commands don't start with a protocol marker.
 	Telnet
 )
 
 var errInvalidMessage = &errProtocol{"invalid message"}
 
-// ReadNextCommand reads the next command from the provided packet. It's
-// possible that the packet contains multiple commands, or zero commands
-// when the packet is incomplete.
-// 'argsbuf' is an optional reusable buffer and it can be nil.
-// 'complete' indicates that a command was read. false means no more commands.
-// 'args' are the output arguments for the command.
-// 'kind' is the type of command that was read.
-// 'leftover' is any remaining unused bytes which belong to the next command.
-// 'err' is returned when a protocol error was encountered.
+// ReadNextCommand reads the next command from the provided packet.
+//
+// It is possible that the packet contains multiple commands (pipelining),
+// zero commands (when the packet is incomplete), or a single command.
+//
+// Parameters:
+//   - packet: The input bytes to parse
+//   - argsbuf: An optional reusable buffer for parsed arguments. Can be nil.
+//
+// Returns:
+//   - complete: True if a complete command was read, false if more data is needed
+//   - args: The parsed command arguments. First element is the command name.
+//   - kind: The protocol type (Redis, Tile38, or Telnet)
+//   - leftover: Any remaining bytes that belong to the next command
+//   - err: Error if the protocol is malformed
+//
+// Example:
+//
+//	packet := []byte("*2\r\n$3\r\nGET\r\n$3\r\nkey\r\n")
+//	complete, args, kind, leftover, err := resp.ReadNextCommand(packet, nil)
+//	// complete == true
+//	// args == [][]byte{[]byte("GET"), []byte("key")}
+//	// kind == resp.Redis
 func ReadNextCommand(packet []byte, argsbuf [][]byte) (
 	complete bool, args [][]byte, kind Kind, leftover []byte, err error,
 ) {
@@ -279,6 +415,7 @@ func readTile38Command(packet []byte, argsbuf [][]byte) (
 	}
 	return false, args[:0], Tile38, packet, nil
 }
+
 func readTelnetCommand(packet []byte, argsbuf [][]byte) (
 	complete bool, args [][]byte, kind Kind, leftover []byte, err error,
 ) {
@@ -358,6 +495,7 @@ func readTelnetCommand(packet []byte, argsbuf [][]byte) (
 }
 
 // appendPrefix will append a "$3\r\n" style redis prefix for a message.
+// This is an internal helper function used by AppendInt, AppendArray, and AppendBulk.
 func appendPrefix(b []byte, c byte, n int64) []byte {
 	if n >= 0 && n <= 9 {
 		return append(b, c, byte('0'+n), '\r', '\n')
@@ -368,6 +506,14 @@ func appendPrefix(b []byte, c byte, n int64) []byte {
 }
 
 // AppendUint appends a Redis protocol uint64 to the input bytes.
+// Returns the updated byte slice.
+//
+// The format is ":<number>\r\n" where <number> is the unsigned 64-bit integer.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendUint(out, 42) // ":42\r\n"
 func AppendUint(b []byte, n uint64) []byte {
 	b = append(b, ':')
 	b = strconv.AppendUint(b, n, 10)
@@ -375,16 +521,45 @@ func AppendUint(b []byte, n uint64) []byte {
 }
 
 // AppendInt appends a Redis protocol int64 to the input bytes.
+// Returns the updated byte slice.
+//
+// The format is ":<number>\r\n" where <number> is the signed 64-bit integer.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendInt(out, -42) // ":-42\r\n"
 func AppendInt(b []byte, n int64) []byte {
 	return appendPrefix(b, ':', n)
 }
 
-// AppendArray appends a Redis protocol array to the input bytes.
+// AppendArray appends a Redis protocol array header to the input bytes.
+// Returns the updated byte slice.
+//
+// The format is "*<count>\r\n" where <count> is the number of elements in the array.
+// After calling this, you should append each element using the appropriate Append* function.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendArray(out, 2)
+//	out = resp.AppendBulkString(out, "foo")
+//	out = resp.AppendBulkString(out, "bar")
+//	// Result: "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n"
 func AppendArray(b []byte, n int) []byte {
 	return appendPrefix(b, '*', int64(n))
 }
 
 // AppendBulk appends a Redis protocol bulk byte slice to the input bytes.
+// Returns the updated byte slice.
+//
+// The format is "$<len>\r\n<data>\r\n" where <len> is the length of the data
+// and <data> is the actual bytes.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendBulk(out, []byte("hello")) // "$5\r\nhello\r\n"
 func AppendBulk(b []byte, bulk []byte) []byte {
 	b = appendPrefix(b, '$', int64(len(bulk)))
 	b = append(b, bulk...)
@@ -392,13 +567,36 @@ func AppendBulk(b []byte, bulk []byte) []byte {
 }
 
 // AppendBulkString appends a Redis protocol bulk string to the input bytes.
+// Returns the updated byte slice.
+//
+// The format is "$<len>\r\n<string>\r\n" where <len> is the length of the string.
+//
+// This is a convenience wrapper around AppendBulk for string values.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendBulkString(out, "hello") // "$5\r\nhello\r\n"
 func AppendBulkString(b []byte, bulk string) []byte {
 	b = appendPrefix(b, '$', int64(len(bulk)))
 	b = append(b, bulk...)
 	return append(b, '\r', '\n')
 }
 
-// AppendString appends a Redis protocol string to the input bytes.
+// AppendString appends a Redis protocol simple string to the input bytes.
+// Returns the updated byte slice.
+//
+// The format is "+<string>\r\n" where <string> is the string content.
+// Newlines are automatically replaced with spaces to ensure valid RESP.
+//
+// Simple strings cannot contain newlines, so any \r or \n characters
+// are replaced with spaces.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendString(out, "OK") // "+OK\r\n"
+//	out = resp.AppendString(out, "Hello\nWorld") // "+Hello World\r\n"
 func AppendString(b []byte, s string) []byte {
 	b = append(b, '+')
 	b = append(b, stripNewlines(s)...)
@@ -406,16 +604,38 @@ func AppendString(b []byte, s string) []byte {
 }
 
 // AppendError appends a Redis protocol error to the input bytes.
+// Returns the updated byte slice.
+//
+// The format is "-<message>\r\n" where <message> is the error message.
+// Newlines are automatically replaced with spaces to ensure valid RESP.
+//
+// Redis error messages typically start with an error code like "ERR" or "WRONGTYPE".
+// This function does not automatically add "ERR" prefix - callers should include
+// the appropriate error code in the message.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendError(out, "ERR unknown command") // "-ERR unknown command\r\n"
 func AppendError(b []byte, s string) []byte {
 	b = append(b, '-')
 	b = append(b, stripNewlines(s)...)
 	return append(b, '\r', '\n')
 }
 
-// AppendOK appends a Redis protocol OK to the input bytes.
+// AppendOK appends a Redis protocol OK response to the input bytes.
+// Returns the updated byte slice.
+//
+// This is a convenience function for the common case of returning "OK" as a simple string.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendOK(out) // "+OK\r\n"
 func AppendOK(b []byte) []byte {
 	return append(b, '+', 'O', 'K', '\r', '\n')
 }
+
 func stripNewlines(s string) string {
 	for i := 0; i < len(s); i++ {
 		if s[i] == '\r' || s[i] == '\n' {
@@ -427,7 +647,16 @@ func stripNewlines(s string) string {
 	return s
 }
 
-// AppendTile38 appends a Tile38 message to the input bytes.
+// AppendTile38 appends a Tile38 native protocol message to the input bytes.
+// Returns the updated byte slice.
+//
+// The format is "$<len> <data>\r\n" where <len> is the length of the data.
+// This is used for Tile38's native command format.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendTile38(out, []byte("SET key value")) // "$13 SET key value\r\n"
 func AppendTile38(b []byte, data []byte) []byte {
 	b = append(b, '$')
 	b = strconv.AppendInt(b, int64(len(data)), 10)
@@ -436,22 +665,56 @@ func AppendTile38(b []byte, data []byte) []byte {
 	return append(b, '\r', '\n')
 }
 
-// AppendNull appends a Redis protocol null to the input bytes.
+// AppendNull appends a Redis protocol null value to the input bytes.
+// Returns the updated byte slice.
+//
+// The format is "$-1\r\n" which represents a null bulk string.
+//
+// This is used to indicate missing or non-existent values.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendNull(out) // "$-1\r\n"
 func AppendNull(b []byte) []byte {
 	return append(b, '$', '-', '1', '\r', '\n')
 }
 
-// AppendBulkFloat appends a float64, as bulk bytes.
+// AppendBulkFloat appends a float64 value as a bulk string to the input bytes.
+// Returns the updated byte slice.
+//
+// The float is converted to a string representation and then appended as a bulk string.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendBulkFloat(out, 3.14159) // "$7\r\n3.14159\r\n"
 func AppendBulkFloat(dst []byte, f float64) []byte {
 	return AppendBulk(dst, strconv.AppendFloat(nil, f, 'f', -1, 64))
 }
 
-// AppendBulkInt appends an int64, as bulk bytes.
+// AppendBulkInt appends an int64 value as a bulk string to the input bytes.
+// Returns the updated byte slice.
+//
+// The integer is converted to a string representation and then appended as a bulk string.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendBulkInt(out, 42) // "$2\r\n42\r\n"
 func AppendBulkInt(dst []byte, x int64) []byte {
 	return AppendBulk(dst, strconv.AppendInt(nil, x, 10))
 }
 
-// AppendBulkUint appends an uint64, as bulk bytes.
+// AppendBulkUint appends a uint64 value as a bulk string to the input bytes.
+// Returns the updated byte slice.
+//
+// The unsigned integer is converted to a string representation and then appended as a bulk string.
+//
+// Example:
+//
+//	out := []byte{}
+//	out = resp.AppendBulkUint(out, 42) // "$2\r\n42\r\n"
 func AppendBulkUint(dst []byte, x uint64) []byte {
 	return AppendBulk(dst, strconv.AppendUint(nil, x, 10))
 }
@@ -472,34 +735,95 @@ func prefixERRIfNeeded(msg string) string {
 	return msg
 }
 
-// SimpleString is for representing a non-bulk representation of a string
-// from an *Any call.
+// SimpleString is a type wrapper for representing a non-bulk representation
+// of a string when using AppendAny.
+//
+// When AppendAny receives a SimpleString value, it serializes it as a simple
+// string (using AppendString) rather than a bulk string.
+//
+// Example:
+//
+//	out := resp.AppendAny(nil, resp.SimpleString("OK")) // "+OK\r\n"
+//	out = resp.AppendAny(nil, "OK")                       // "$2\r\nOK\r\n"
 type SimpleString string
 
-// SimpleInt is for representing a non-bulk representation of a int
-// from an *Any call.
+// SimpleInt is a type wrapper for representing a non-bulk representation
+// of an integer when using AppendAny.
+//
+// When AppendAny receives a SimpleInt value, it serializes it as an integer
+// (using AppendInt) rather than a bulk string.
+//
+// Example:
+//
+//	out := resp.AppendAny(nil, resp.SimpleInt(42)) // ":42\r\n"
+//	out = resp.AppendAny(nil, 42)                   // "$2\r\n42\r\n"
 type SimpleInt int
 
-// Marshaler is the interface implemented by types that
-// can marshal themselves into a Redis response type from an *Any call.
-// The return value is not check for validity.
+// Marshaler is the interface implemented by types that can marshal themselves
+// into a Redis response type when using AppendAny.
+//
+// Implement this interface for custom types that want to control their RESP
+// serialization. The returned bytes are appended directly without modification,
+// so they must be valid RESP format.
+//
+// Example:
+//
+//	type MyType struct {
+//	    Value string
+//	}
+//
+//	func (m *MyType) MarshalRESP() []byte {
+//	    return []byte("+MyType\r\n")
+//	}
+//
+//	out := resp.AppendAny(nil, &MyType{}) // "+MyType\r\n"
 type Marshaler interface {
 	MarshalRESP() []byte
 }
 
-// AppendAny appends any type to valid Redis type.
-//   nil             -> null
-//   error           -> error (adds "ERR " when first word is not uppercase)
-//   string          -> bulk-string
-//   numbers         -> bulk-string
-//   []byte          -> bulk-string
-//   bool            -> bulk-string ("0" or "1")
-//   slice           -> array
-//   map             -> array with key/value pairs
-//   SimpleString    -> string
-//   SimpleInt       -> integer
-//   Marshaler       -> raw bytes
-//   everything-else -> bulk-string representation using fmt.Sprint()
+// AppendAny appends any Go type to valid RESP format.
+// Returns the updated byte slice.
+//
+// This function provides automatic type conversion from Go types to RESP format.
+// The conversion rules are:
+//
+//	nil -> null
+//	error -> error (automatically adds "ERR " prefix if first word is not uppercase)
+//	string -> bulk string
+//	[]byte -> bulk bytes
+//	bool -> bulk string ("0" or "1")
+//	int, int8, int16, int32, int64 -> bulk string
+//	uint, uint8, uint16, uint32, uint64 -> bulk string
+//	float32, float64 -> bulk string
+//	[]T -> array (for any slice type)
+//	map[K]V -> array with key/value pairs (sorted by key for string keys)
+//	SimpleString -> simple string (not bulk)
+//	SimpleInt -> integer (not bulk)
+//	Marshaler -> raw bytes from MarshalRESP()
+//	anything else -> bulk string representation using fmt.Sprint()
+//
+// Example:
+//
+//	out := []byte{}
+//
+//	// Different types
+//	out = resp.AppendAny(out, nil)              // "$-1\r\n"
+//	out = resp.AppendAny(out, "hello")          // "$5\r\nhello\r\n"
+//	out = resp.AppendAny(out, 123)              // "$3\r\n123\r\n"
+//	out = resp.AppendAny(out, true)             // "$1\r\n1\r\n"
+//	out = resp.AppendAny(out, []int{1, 2, 3})   // "*3\r\n$1\r\n1\r\n$1\r\n2\r\n$1\r\n3\r\n"
+//
+//	// SimpleString and SimpleInt
+//	out = resp.AppendAny(out, resp.SimpleString("OK")) // "+OK\r\n"
+//	out = resp.AppendAny(out, resp.SimpleInt(42))       // ":42\r\n"
+//
+//	// Error
+//	err := errors.New("something went wrong")
+//	out = resp.AppendAny(out, err) // "-ERR something went wrong\r\n"
+//
+//	// Map (sorted by key)
+//	out = resp.AppendAny(out, map[string]int{"a": 1, "b": 2})
+//	// "*4\r\n$1\r\na\r\n$1\r\n1\r\n$1\r\nb\r\n$1\r\n2\r\n"
 func AppendAny(b []byte, v interface{}) []byte {
 	switch v := v.(type) {
 	case SimpleString:
