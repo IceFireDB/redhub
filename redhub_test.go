@@ -24,6 +24,14 @@ func (m *mockConn) Write(buf []byte) (n int, err error) {
 	return len(buf), nil
 }
 
+func (m *mockConn) Writev(bufs [][]byte) (n int, err error) {
+	for _, buf := range bufs {
+		m.written = append(m.written, buf...)
+		n += len(buf)
+	}
+	return n, nil
+}
+
 func (m *mockConn) Close() error {
 	m.closed = true
 	return nil
