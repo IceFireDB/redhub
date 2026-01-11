@@ -56,6 +56,8 @@ package redhub
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -203,6 +205,10 @@ type RedHub struct {
 	handler      func(cmd resp.Command, out []byte) ([]byte, Action)
 	redHubBufMap map[gnet.Conn]*connBuffer
 	connSync     *sync.RWMutex
+	mu           sync.Mutex
+	addr         string
+	running      bool
+	engine       gnet.Engine
 }
 
 // connBuffer holds the buffer and commands for each connection.
@@ -253,6 +259,9 @@ func NewRedHub(
 // The engine parameter provides access to server-wide operations.
 // Typically returns gnet.None to indicate normal startup.
 func (rs *RedHub) OnBoot(eng gnet.Engine) (action gnet.Action) {
+	rs.mu.Lock()
+	rs.engine = eng
+	rs.mu.Unlock()
 	return gnet.None
 }
 
@@ -427,5 +436,34 @@ func ListenAndServe(addr string, options Options, rh *RedHub) error {
 		opts = append(opts, gnet.WithEdgeTriggeredIO(true))
 	}
 
-	return gnet.Run(rh, addr, opts...)
+	rh.mu.Lock()
+	rh.addr = addr
+	rh.running = true
+	rh.mu.Unlock()
+
+	err := gnet.Run(rh, addr, opts...)
+
+	rh.mu.Lock()
+	rh.running = false
+	rh.mu.Unlock()
+
+	return err
+}
+
+// Close gracefully shuts down the RedHub server.
+//
+// This method stops the server and closes all active connections. It is safe to call
+// multiple times. If the server is not currently running, it returns an error.
+//
+// Returns an error if the server is not running or if the shutdown fails.
+func (rs *RedHub) Close() error {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	if !rs.running {
+		return errors.New("server not running")
+	}
+
+	rs.running = false
+	return rs.engine.Stop(context.Background())
 }
