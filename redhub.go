@@ -108,7 +108,7 @@ func (rs *RedHub) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	rs.connSync.RUnlock()
 
 	if !ok {
-		c.AsyncWrite(resp.AppendError(nil, "ERR Client is closed"), nil)
+		_, _ = c.Write(resp.AppendError(nil, "ERR Client is closed"))
 		return gnet.None
 	}
 
@@ -120,7 +120,7 @@ func (rs *RedHub) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	cb.buf.Write(buf)
 	cmds, lastbyte, err := resp.ReadCommands(cb.buf.Bytes())
 	if err != nil {
-		c.AsyncWrite(resp.AppendError(nil, "ERR "+err.Error()), nil)
+		_, _ = c.Write(resp.AppendError(nil, "ERR "+err.Error()))
 		return gnet.None
 	}
 
@@ -135,7 +135,7 @@ func (rs *RedHub) OnTraffic(c gnet.Conn) (action gnet.Action) {
 			var status Action
 			result, status := rs.handler(cmd, out)
 			if len(result) > 0 {
-				c.AsyncWrite(result, nil)
+				_, _ = c.Write(result)
 			}
 
 			if status == Close {
