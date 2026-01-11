@@ -310,3 +310,68 @@ func TestShutdownAction(t *testing.T) {
 	action := rh.OnTraffic(mock)
 	assert.Equal(t, gnet.Close, action)
 }
+
+func TestClose_NotRunning(t *testing.T) {
+	rh := NewRedHub(nil, nil, func(cmd resp.Command, out []byte) ([]byte, Action) {
+		return out, None
+	})
+
+	err := rh.Close()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "server not running")
+}
+
+func TestClose_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	rh := NewRedHub(
+		func(c *Conn) (out []byte, action Action) {
+			return nil, None
+		},
+		func(c *Conn, err error) (action Action) {
+			return None
+		},
+		func(cmd resp.Command, out []byte) ([]byte, Action) {
+			return resp.AppendString(out, "OK"), None
+		},
+	)
+
+	// Start server in a goroutine
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- ListenAndServe("tcp://127.0.0.1:16379", Options{Multicore: false}, rh)
+	}()
+
+	// Wait for server to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Test that server is running
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:16379", time.Second)
+	assert.NoError(t, err)
+	assert.NotNil(t, conn)
+	conn.Close()
+
+	// Close the server
+	err = rh.Close()
+	assert.NoError(t, err)
+
+	// Wait a moment for server to stop
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify connection fails after close
+	conn, err = net.DialTimeout("tcp", "127.0.0.1:16379", 200*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		t.Error("Expected connection error after server close")
+	}
+
+	// Verify server goroutine returns gracefully (no error when stopped via Close)
+	select {
+	case err := <-serverErr:
+		assert.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Error("Server did not stop within timeout")
+	}
+}
