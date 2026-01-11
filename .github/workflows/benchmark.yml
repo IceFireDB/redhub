@@ -41,7 +41,6 @@ jobs:
         SERVER_PID=$!
         echo $SERVER_PID > server.pid
 
-        # Wait for server to be ready
         for i in {1..30}; do
           if nc -z 127.0.0.1 6380; then
             echo "Server is ready"
@@ -51,7 +50,6 @@ jobs:
           echo "Waiting for server to start... ($i/30)"
         done
 
-        # Verify server is ready
         if ! nc -z 127.0.0.1 6380; then
           echo "Server failed to start"
           cat server.log
