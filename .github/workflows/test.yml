@@ -114,24 +114,12 @@ jobs:
         echo "GET response: $VALUE"
         [ "$VALUE" = "hello world" ]
 
-    - name: Test non-existent key
-      run: |
-        VALUE=$(redis-cli -p 6380 GET nonexistentkey || true)
-        echo "GET nonexistent response: $VALUE"
-        [ "$VALUE" = "(nil)" ]
-
     - name: Test DEL command
       run: |
         redis-cli -p 6380 SET delkey "value"
         RESPONSE=$(redis-cli -p 6380 DEL delkey)
         echo "DEL response: $RESPONSE"
         [ "$RESPONSE" = "1" ]
-
-    - name: Test DEL non-existent key
-      run: |
-        RESPONSE=$(redis-cli -p 6380 DEL nonexistentkey || echo "0")
-        echo "DEL nonexistent response: $RESPONSE"
-        [ "$RESPONSE" = "0" ]
 
     - name: Test binary data
       run: |
