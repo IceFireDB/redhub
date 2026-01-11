@@ -5,39 +5,30 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-    
+
 
 jobs:
-  # deploy:
-  #   runs-on: ubuntu-20.04
-  #   concurrency:
-  #     group: ${{ github.workflow }}-${{ github.ref }}
-  #   steps:
-  #     - uses: actions/checkout@v2
-  #       with:
-  #         submodules: true  # Fetch Hugo themes (true OR recursive)
-  #         fetch-depth: 0    # Fetch all history for .GitInfo and .Lastmod
-
-  #     - run: mv README.md doc/index.md
-
-  #     - name: Deploy Pages
-  #       uses: peaceiris/actions-gh-pages@v3
-  #       with:
-  #         github_token: ${{ secrets.GITHUB_TOKEN }}
-  #         publish_dir: ./doc
-  #         enable_jekyll: true
-          
   build-example-kv:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.21', '1.22', '1.23', '1.24']
+        os: [ubuntu-latest]
+
+    runs-on: ${{ matrix.os }}
+
     steps:
     - uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: 1.24.0
+        go-version: ${{ matrix.go-version }}
+
+    - name: Download dependencies
+      run: go mod download
 
     - name: Build
       run: |
         cd example/memory_kv/
-        go build
+        go build -o server
+
