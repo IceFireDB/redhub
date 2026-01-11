@@ -102,7 +102,6 @@ func (rs *RedHub) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 
 // OnTraffic fires when a socket receives data from the remote
 func (rs *RedHub) OnTraffic(c gnet.Conn) (action gnet.Action) {
-	var out []byte
 	rs.connSync.RLock()
 	cb, ok := rs.redHubBufMap[c]
 	rs.connSync.RUnlock()
@@ -128,26 +127,23 @@ func (rs *RedHub) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	cb.buf.Reset()
 
 	if len(lastbyte) == 0 {
-		var results [][]byte
+		var out []byte
 		for len(cb.command) > 0 {
 			cmd := cb.command[0]
 			cb.command = cb.command[1:]
 
 			var status Action
-			result, status := rs.handler(cmd, out)
-			if len(result) > 0 {
-				results = append(results, result)
-			}
+			out, status = rs.handler(cmd, out)
 
 			if status == Close {
-				if len(results) > 0 {
-					_, _ = c.Writev(results)
+				if len(out) > 0 {
+					_, _ = c.Write(out)
 				}
 				return gnet.Close
 			}
 		}
-		if len(results) > 0 {
-			_, _ = c.Writev(results)
+		if len(out) > 0 {
+			_, _ = c.Write(out)
 		}
 	} else {
 		cb.buf.Write(lastbyte)
