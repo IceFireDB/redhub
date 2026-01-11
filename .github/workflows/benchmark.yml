@@ -9,52 +9,95 @@ on:
 
 jobs:
   benchmark:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.24']
+        os: [ubuntu-latest]
+
+    runs-on: ${{ matrix.os }}
+
     steps:
     - uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.21'
+        go-version: ${{ matrix.go-version }}
 
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y redis-tools netcat-openbsd
 
-    - name: Run benchmark
+    - name: Build server
       run: |
-        # Start server in background
         cd example/memory_kv
-        # Start server with logging
-        go run server.go > server.log 2>&1 &
+        go build -o server
+
+    - name: Start server
+      run: |
+        cd example/memory_kv
+        ./server -addr "127.0.0.1:6380" > server.log 2>&1 &
         SERVER_PID=$!
-        
-        # Wait for server to be ready (longer timeout for CI environment)
+        echo $SERVER_PID > server.pid
+
+        # Wait for server to be ready
         for i in {1..30}; do
           if nc -z 127.0.0.1 6380; then
             echo "Server is ready"
             break
           fi
-          sleep 2
+          sleep 1
           echo "Waiting for server to start... ($i/30)"
         done
-        
+
         # Verify server is ready
         if ! nc -z 127.0.0.1 6380; then
-          echo "Server failed to start after 60 seconds"
-          echo "Server logs:"
-          cat server.log || true
+          echo "Server failed to start"
+          cat server.log
           exit 1
         fi
-        
-        # Run benchmark tests
-        echo "Running benchmark tests..."
-        redis-benchmark -h 127.0.0.1 -p 6380 -n 5000000 -t set,get -c 512 -P 1024 -q
-        
-        # Stop server
-        kill $SERVER_PID
-        
-        # Output results
-        echo "Benchmark completed"
+
+    - name: Warm up
+      run: |
+        redis-benchmark -h 127.0.0.1 -p 6380 -n 10000 -t set,get -c 16 -q
+
+    - name: Run SET benchmark
+      run: |
+        echo "=== SET Benchmark ==="
+        redis-benchmark -h 127.0.0.1 -p 6380 -n 100000 -t set -c 16
+
+    - name: Run GET benchmark
+      run: |
+        echo "=== GET Benchmark ==="
+        redis-benchmark -h 127.0.0.1 -p 6380 -n 100000 -t get -c 16
+
+    - name: Run mixed SET/GET benchmark
+      run: |
+        echo "=== Mixed SET/GET Benchmark ==="
+        redis-benchmark -h 127.0.0.1 -p 6380 -n 100000 -t set,get -c 16
+
+    - name: Run high concurrency benchmark
+      run: |
+        echo "=== High Concurrency Benchmark ==="
+        redis-benchmark -h 127.0.0.1 -p 6380 -n 100000 -t set,get -c 64 -P 16
+
+    - name: Run pipeline benchmark
+      run: |
+        echo "=== Pipeline Benchmark ==="
+        redis-benchmark -h 127.0.0.1 -p 6380 -n 100000 -t set,get -c 16 -P 32
+
+    - name: Stop server
+      if: always()
+      run: |
+        cd example/memory_kv
+        if [ -f server.pid ]; then
+          kill $(cat server.pid) || true
+          rm server.pid
+        fi
+
+    - name: Show server logs
+      if: failure()
+      run: |
+        cat example/memory_kv/server.log || true
+

@@ -1,0 +1,276 @@
+name: CI Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        go-version: ['1.21', '1.22', '1.23', '1.24']
+        os: [ubuntu-latest]
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go-version }}
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y redis-tools netcat-openbsd
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Verify dependencies
+      run: go mod verify
+
+    - name: Build all packages
+      run: go build ./...
+
+    - name: Build example
+      run: |
+        cd example/memory_kv
+        go build -o server
+
+    - name: Run unit tests
+      run: go test -v -race -coverprofile=coverage.out ./...
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.out
+        fail_ci_if_error: false
+
+  functional-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y redis-tools netcat-openbsd
+
+    - name: Build example server
+      run: |
+        cd example/memory_kv
+        go build -o server
+
+    - name: Start server
+      run: |
+        cd example/memory_kv
+        # Start server in background
+        ./server -addr "127.0.0.1:6380" > server.log 2>&1 &
+        SERVER_PID=$!
+        echo $SERVER_PID > server.pid
+        
+        # Wait for server to be ready
+        for i in {1..30}; do
+          if nc -z 127.0.0.1 6380; then
+            echo "Server is ready"
+            break
+          fi
+          sleep 1
+          echo "Waiting for server to start... ($i/30)"
+        done
+        
+        # Verify server is ready
+        if ! nc -z 127.0.0.1 6380; then
+          echo "Server failed to start"
+          cat server.log
+          exit 1
+        fi
+
+    - name: Test PING command
+      run: |
+        RESPONSE=$(redis-cli -p 6380 PING)
+        echo "PING response: $RESPONSE"
+        [ "$RESPONSE" = "PONG" ]
+
+    - name: Test SET command
+      run: |
+        RESPONSE=$(redis-cli -p 6380 SET mykey "hello world")
+        echo "SET response: $RESPONSE"
+        [ "$RESPONSE" = "OK" ]
+
+    - name: Test GET command
+      run: |
+        VALUE=$(redis-cli -p 6380 GET mykey)
+        echo "GET response: $VALUE"
+        [ "$VALUE" = "hello world" ]
+
+    - name: Test non-existent key
+      run: |
+        VALUE=$(redis-cli -p 6380 GET nonexistentkey)
+        echo "GET nonexistent response: $VALUE"
+        [ "$VALUE" = "(nil)" ]
+
+    - name: Test DEL command
+      run: |
+        redis-cli -p 6380 SET delkey "value"
+        RESPONSE=$(redis-cli -p 6380 DEL delkey)
+        echo "DEL response: $RESPONSE"
+        [ "$RESPONSE" = "1" ]
+
+    - name: Test DEL non-existent key
+      run: |
+        RESPONSE=$(redis-cli -p 6380 DEL nonexistentkey)
+        echo "DEL nonexistent response: $RESPONSE"
+        [ "$RESPONSE" = "0" ]
+
+    - name: Test binary data
+      run: |
+        VALUE=$(redis-cli -p 6380 --binary SET binkey "binary\x00data")
+        [ "$VALUE" = "OK" ]
+        RETRIEVED=$(redis-cli -p 6380 --raw GET binkey)
+        [ "$RETRIEVED" = "binary\x00data" ]
+
+    - name: Test large value
+      run: |
+        LARGE_VALUE=$(python3 -c 'print("A" * 10000)')
+        RESPONSE=$(redis-cli -p 6380 SET largekey "$LARGE_VALUE")
+        [ "$RESPONSE" = "OK" ]
+        RETRIEVED=$(redis-cli -p 6380 GET largekey)
+        [ "$RETRIEVED" = "$LARGE_VALUE" ]
+
+    - name: Test multiple SET/GET operations
+      run: |
+        for i in {1..100}; do
+          redis-cli -p 6380 SET "key$i" "value$i" > /dev/null
+        done
+        for i in {1..100}; do
+          VALUE=$(redis-cli -p 6380 GET "key$i")
+          if [ "$VALUE" != "value$i" ]; then
+            echo "Failed for key$i"
+            exit 1
+          fi
+        done
+        echo "100 SET/GET operations completed successfully"
+
+    - name: Test QUIT command
+      run: |
+        RESPONSE=$(redis-cli -p 6380 QUIT)
+        echo "QUIT response: $RESPONSE"
+        [ "$RESPONSE" = "OK" ]
+
+    - name: Test CONFIG command (for compatibility)
+      run: |
+        RESPONSE=$(redis-cli -p 6380 CONFIG GET maxmemory-policy 2>&1 || echo "Expected error")
+        echo "CONFIG response: $RESPONSE"
+
+    - name: Stop server
+      if: always()
+      run: |
+        cd example/memory_kv
+        if [ -f server.pid ]; then
+          kill $(cat server.pid) || true
+          rm server.pid
+        fi
+
+    - name: Show server logs
+      if: failure()
+      run: |
+        cat example/memory_kv/server.log || true
+
+  benchmark-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y redis-tools netcat-openbsd
+
+    - name: Build example server
+      run: |
+        cd example/memory_kv
+        go build -o server
+
+    - name: Start server
+      run: |
+        cd example/memory_kv
+        ./server -addr "127.0.0.1:6380" > server.log 2>&1 &
+        SERVER_PID=$!
+        echo $SERVER_PID > server.pid
+        
+        # Wait for server to be ready
+        for i in {1..30}; do
+          if nc -z 127.0.0.1 6380; then
+            echo "Server is ready"
+            break
+          fi
+          sleep 1
+          echo "Waiting for server to start... ($i/30)"
+        done
+        
+        # Verify server is ready
+        if ! nc -z 127.0.0.1 6380; then
+          echo "Server failed to start"
+          cat server.log
+          exit 1
+        fi
+
+    - name: Warm up server
+      run: |
+        echo "Warming up server..."
+        redis-benchmark -h 127.0.0.1 -p 6380 -n 10000 -t set,get -c 16 -q
+
+    - name: Run SET benchmark
+      run: |
+        echo "Running SET benchmark..."
+        redis-benchmark -h 127.0.0.1 -p 6380 -n 100000 -t set -c 16 -q
+
+    - name: Run GET benchmark
+      run: |
+        echo "Running GET benchmark..."
+        redis-benchmark -h 127.0.0.1 -p 6380 -n 100000 -t get -c 16 -q
+
+    - name: Run mixed SET/GET benchmark
+      run: |
+        echo "Running mixed SET/GET benchmark..."
+        redis-benchmark -h 127.0.0.1 -p 6380 -n 100000 -t set,get -c 16 -q
+
+    - name: Run concurrent benchmark
+      run: |
+        echo "Running concurrent benchmark..."
+        redis-benchmark -h 127.0.0.1 -p 6380 -n 100000 -t set,get -c 64 -q
+
+    - name: Stop server
+      if: always()
+      run: |
+        cd example/memory_kv
+        if [ -f server.pid ]; then
+          kill $(cat server.pid) || true
+          rm server.pid
+        fi
+
+    - name: Show server logs
+      if: failure()
+      run: |
+        cat example/memory_kv/server.log || true
