@@ -128,6 +128,7 @@ func (rs *RedHub) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	cb.buf.Reset()
 
 	if len(lastbyte) == 0 {
+		var results [][]byte
 		for len(cb.command) > 0 {
 			cmd := cb.command[0]
 			cb.command = cb.command[1:]
@@ -135,12 +136,18 @@ func (rs *RedHub) OnTraffic(c gnet.Conn) (action gnet.Action) {
 			var status Action
 			result, status := rs.handler(cmd, out)
 			if len(result) > 0 {
-				_, _ = c.Write(result)
+				results = append(results, result)
 			}
 
 			if status == Close {
+				if len(results) > 0 {
+					_, _ = c.Writev(results)
+				}
 				return gnet.Close
 			}
+		}
+		if len(results) > 0 {
+			_, _ = c.Writev(results)
 		}
 	} else {
 		cb.buf.Write(lastbyte)
