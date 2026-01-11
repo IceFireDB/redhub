@@ -26,3 +26,4 @@ vendor
 #vscode
 .vscode
 example/memory_kv/memory_kv
+example/memory_kv/server
