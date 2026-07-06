@@ -3,7 +3,7 @@ module github.com/IceFireDB/redhub
 go 1.24.0
 
 require (
-	github.com/panjf2000/gnet/v2 v2.9.8
+	github.com/panjf2000/gnet/v2 v2.10.0
 	github.com/stretchr/testify v1.11.1
 )
 
