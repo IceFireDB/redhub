@@ -1,6 +1,7 @@
 package redhub
 
 import (
+	"crypto/tls"
 	"net"
 	"testing"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/IceFireDB/redhub/pkg/resp"
 	"github.com/panjf2000/gnet/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockConn struct {
@@ -358,7 +360,7 @@ func TestClose_Integration(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Wait a moment for server to stop
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(time.Second)
 
 	// Verify connection fails after close
 	conn, err = net.DialTimeout("tcp", "127.0.0.1:16379", 200*time.Millisecond)
@@ -372,6 +374,245 @@ func TestClose_Integration(t *testing.T) {
 	case err := <-serverErr:
 		assert.NoError(t, err)
 	case <-time.After(2 * time.Second):
+		t.Error("Server did not stop within timeout")
+	}
+}
+
+func TestTLSListenEnable_NoCertFile(t *testing.T) {
+	rh := NewRedHub(
+		func(c *Conn) (out []byte, action Action) {
+			return nil, None
+		},
+		func(c *Conn, err error) (action Action) {
+			return None
+		},
+		func(cmd resp.Command, out []byte) ([]byte, Action) {
+			return out, None
+		},
+	)
+
+	err := ListenAndServe("tcp://127.0.0.1:16380", Options{
+		TLSListenEnable: true,
+		TLSCertFile:     "",
+		TLSKeyFile:      "testdata/key.pem",
+	}, rh)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "TLSCertFile and TLSKeyFile")
+}
+
+func TestTLSListenEnable_NoKeyFile(t *testing.T) {
+	rh := NewRedHub(
+		func(c *Conn) (out []byte, action Action) {
+			return nil, None
+		},
+		func(c *Conn, err error) (action Action) {
+			return None
+		},
+		func(cmd resp.Command, out []byte) ([]byte, Action) {
+			return out, None
+		},
+	)
+
+	err := ListenAndServe("tcp://127.0.0.1:16381", Options{
+		TLSListenEnable: true,
+		TLSCertFile:     "testdata/cert.pem",
+		TLSKeyFile:      "",
+	}, rh)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "TLSCertFile and TLSKeyFile")
+}
+
+func TestTLSListenEnable_InvalidCertPath(t *testing.T) {
+	rh := NewRedHub(
+		func(c *Conn) (out []byte, action Action) {
+			return nil, None
+		},
+		func(c *Conn, err error) (action Action) {
+			return None
+		},
+		func(cmd resp.Command, out []byte) ([]byte, Action) {
+			return out, None
+		},
+	)
+
+	err := ListenAndServe("tcp://127.0.0.1:16382", Options{
+		TLSListenEnable: true,
+		TLSCertFile:     "nonexistent.pem",
+		TLSKeyFile:      "nonexistent.pem",
+	}, rh)
+	assert.Error(t, err)
+}
+
+func TestTLSListenEnable_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	rh := NewRedHub(
+		func(c *Conn) (out []byte, action Action) {
+			return nil, None
+		},
+		func(c *Conn, err error) (action Action) {
+			return None
+		},
+		func(cmd resp.Command, out []byte) ([]byte, Action) {
+			cmdName := string(cmd.Args[0])
+			if cmdName == "PING" {
+				return resp.AppendString(out, "PONG"), None
+			}
+			return resp.AppendString(out, "OK"), None
+		},
+	)
+
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- ListenAndServe("tcp://127.0.0.1:16383", Options{
+			Multicore:       false,
+			TLSListenEnable: true,
+			TLSCertFile:     "testdata/cert.pem",
+			TLSKeyFile:      "testdata/key.pem",
+		}, rh)
+	}()
+
+	time.Sleep(time.Second)
+
+	conn, err := tls.Dial("tcp", "127.0.0.1:16384", &tls.Config{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		t.Skipf("TLS connection failed (no certs?): %v", err)
+	}
+	require.NoError(t, err)
+	defer conn.Close()
+
+	_, err = conn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
+	require.NoError(t, err)
+
+	buf := make([]byte, 1024)
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, err := conn.Read(buf)
+	require.NoError(t, err)
+	assert.Contains(t, string(buf[:n]), "PONG")
+
+	err = rh.Close()
+	require.NoError(t, err)
+
+	select {
+	case err := <-serverErr:
+		assert.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Error("Server did not stop within timeout")
+	}
+}
+
+func TestTLSListenEnable_CloseClosesTLSListener(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	rh := NewRedHub(
+		func(c *Conn) (out []byte, action Action) {
+			return nil, None
+		},
+		func(c *Conn, err error) (action Action) {
+			return None
+		},
+		func(cmd resp.Command, out []byte) ([]byte, Action) {
+			return resp.AppendString(out, "OK"), None
+		},
+	)
+
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- ListenAndServe("tcp://127.0.0.1:16385", Options{
+			Multicore:       false,
+			TLSListenEnable: true,
+			TLSCertFile:     "testdata/cert.pem",
+			TLSKeyFile:      "testdata/key.pem",
+		}, rh)
+	}()
+
+	time.Sleep(time.Second)
+
+	conn, err := tls.Dial("tcp", "127.0.0.1:16386", &tls.Config{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		t.Skipf("TLS connection failed (no certs?): %v", err)
+	}
+	require.NoError(t, err)
+	conn.Close()
+
+	err = rh.Close()
+	require.NoError(t, err)
+
+	select {
+	case err := <-serverErr:
+		assert.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Error("Server did not stop within timeout")
+	}
+}
+
+func TestTLSListenEnable_WithCustomTLSAddr(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	rh := NewRedHub(
+		func(c *Conn) (out []byte, action Action) {
+			return nil, None
+		},
+		func(c *Conn, err error) (action Action) {
+			return None
+		},
+		func(cmd resp.Command, out []byte) ([]byte, Action) {
+			cmdName := string(cmd.Args[0])
+			if cmdName == "PING" {
+				return resp.AppendString(out, "PONG"), None
+			}
+			return resp.AppendString(out, "OK"), None
+		},
+	)
+
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- ListenAndServe("tcp://127.0.0.1:16387", Options{
+			Multicore:       false,
+			TLSListenEnable: true,
+			TLSCertFile:     "testdata/cert.pem",
+			TLSKeyFile:      "testdata/key.pem",
+			TLSAddr:         "127.0.0.1:16388",
+		}, rh)
+	}()
+
+	time.Sleep(time.Second)
+
+	conn, err := tls.Dial("tcp", "127.0.0.1:16388", &tls.Config{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		t.Skipf("TLS connection failed (no certs?): %v", err)
+	}
+	require.NoError(t, err)
+	defer conn.Close()
+
+	_, err = conn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
+	require.NoError(t, err)
+
+	buf := make([]byte, 1024)
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, err := conn.Read(buf)
+	require.NoError(t, err)
+	assert.Contains(t, string(buf[:n]), "PONG")
+
+	err = rh.Close()
+	require.NoError(t, err)
+
+	select {
+	case err := <-serverErr:
+		assert.NoError(t, err)
+	case <-time.After(3 * time.Second):
 		t.Error("Server did not stop within timeout")
 	}
 }

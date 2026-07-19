@@ -22,6 +22,7 @@ bin/
 .idea
 release_bin
 vendor
+go.work
 
 #vscode
 .vscode
