@@ -26,6 +26,10 @@ func main() {
 	var reusePort bool
 	var pprofDebug bool
 	var pprofAddr string
+	var tlsEnable bool
+	var tlsCertFile string
+	var tlsKeyFile string
+	var tlsAddr string
 
 	// Parse command-line arguments
 	flag.StringVar(&network, "network", "tcp", "server network (default \"tcp\")")
@@ -34,6 +38,10 @@ func main() {
 	flag.BoolVar(&reusePort, "reusePort", false, "enable port reuse")
 	flag.BoolVar(&pprofDebug, "pprofDebug", false, "enable pprof debugging")
 	flag.StringVar(&pprofAddr, "pprofAddr", ":8888", "pprof address")
+	flag.BoolVar(&tlsEnable, "tls", false, "enable TLS support")
+	flag.StringVar(&tlsCertFile, "tlsCert", "", "TLS certificate file path")
+	flag.StringVar(&tlsKeyFile, "tlsKey", "", "TLS key file path")
+	flag.StringVar(&tlsAddr, "tlsAddr", "", "TLS listener address (default: derived from addr)")
 	flag.Parse()
 
 	// Start pprof server if debugging is enabled
@@ -48,8 +56,12 @@ func main() {
 
 	// Define RedHub options
 	option := redhub.Options{
-		Multicore: multicore,
-		ReusePort: reusePort,
+		Multicore:       multicore,
+		ReusePort:       reusePort,
+		TLSListenEnable: tlsEnable,
+		TLSCertFile:     tlsCertFile,
+		TLSKeyFile:      tlsKeyFile,
+		TLSAddr:         tlsAddr,
 	}
 
 	// Create a new RedHub instance with custom handlers
@@ -127,6 +139,13 @@ func main() {
 
 	// Log the server start
 	log.Printf("started redhub server at %s", addr)
+	if tlsEnable {
+		listenAddr := tlsAddr
+		if listenAddr == "" {
+			listenAddr = addr
+		}
+		log.Printf("TLS listener enabled at %s", listenAddr)
+	}
 
 	// Start the RedHub server
 	err := redhub.ListenAndServe(protoAddr, option, rh)

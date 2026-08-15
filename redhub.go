@@ -57,7 +57,11 @@ package redhub
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
+	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -192,6 +196,27 @@ type Options struct {
 	// This can reduce the number of system calls but requires careful handling.
 	// Default: false
 	EdgeTriggeredIO bool
+
+	// TLSListenEnable enables TLS support. When true, a TLS listener is started
+	// alongside the TCP listener. TLS connections are proxied to the TCP server.
+	// Default: false
+	TLSListenEnable bool
+
+	// TLSCertFile specifies the path to the TLS certificate file.
+	// Required when TLSListenEnable is true.
+	// Default: ""
+	TLSCertFile string
+
+	// TLSKeyFile specifies the path to the TLS private key file.
+	// Required when TLSListenEnable is true.
+	// Default: ""
+	TLSKeyFile string
+
+	// TLSAddr specifies the address for the TLS listener.
+	// If empty, it's derived from the main TCP address by changing the port
+	// (e.g., tcp://127.0.0.1:6379 -> tcp://127.0.0.1:6380).
+	// Default: ""
+	TLSAddr string
 }
 
 // RedHub represents the main server structure that manages connections and command processing.
@@ -207,8 +232,10 @@ type RedHub struct {
 	connSync     *sync.RWMutex
 	mu           sync.Mutex
 	addr         string
+	tcpAddr      string
 	running      bool
 	engine       gnet.Engine
+	tlsListener  net.Listener
 }
 
 // connBuffer holds the buffer and commands for each connection.
@@ -369,6 +396,126 @@ func (rs *RedHub) OnTick() (delay time.Duration, action gnet.Action) {
 	return 0, gnet.None
 }
 
+// deriveTLSAddr derives a TLS address from the TCP address by incrementing the port.
+func deriveTLSAddr(tcpAddr string) string {
+	if !strings.HasPrefix(tcpAddr, "tcp://") {
+		return ""
+	}
+
+	hostPort := strings.TrimPrefix(tcpAddr, "tcp://")
+	host, portStr, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		return ""
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return ""
+	}
+
+	return "tcp://" + net.JoinHostPort(host, strconv.Itoa(port+1))
+}
+
+// startTLSListener starts the TLS listener that proxies connections to the TCP server.
+func (rs *RedHub) startTLSListener(options Options) error {
+	cert, err := tls.LoadX509KeyPair(options.TLSCertFile, options.TLSKeyFile)
+	if err != nil {
+		return err
+	}
+
+	tlsAddr := options.TLSAddr
+	if tlsAddr == "" {
+		tlsAddr = deriveTLSAddr(rs.tcpAddr)
+		if tlsAddr == "" {
+			return errors.New("failed to derive TLS address from TCP address")
+		}
+	}
+
+	listenAddr := tlsAddr
+	if strings.HasPrefix(tlsAddr, "tcp://") {
+		listenAddr = strings.TrimPrefix(tlsAddr, "tcp://")
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+
+	rs.tlsListener, err = tls.Listen("tcp", listenAddr, tlsConfig)
+	if err != nil {
+		return err
+	}
+
+	tcpForwardAddr := rs.tcpAddr
+	if strings.HasPrefix(tcpForwardAddr, "tcp://") {
+		tcpForwardAddr = strings.TrimPrefix(tcpForwardAddr, "tcp://")
+	}
+
+	go rs.acceptTLSConnections(tcpForwardAddr)
+
+	return nil
+}
+
+// acceptTLSConnections accepts TLS connections and forwards them to the TCP server.
+func (rs *RedHub) acceptTLSConnections(tcpAddr string) {
+	for {
+		tlsConn, err := rs.tlsListener.Accept()
+		if err != nil {
+			if !rs.running {
+				return
+			}
+			continue
+		}
+
+		go rs.handleTLSConn(tlsConn, tcpAddr)
+	}
+}
+
+// handleTLSConn handles a single TLS connection by forwarding data to the TCP server.
+func (rs *RedHub) handleTLSConn(tlsConn net.Conn, tcpAddr string) {
+	defer tlsConn.Close()
+
+	tcpConn, err := net.Dial("tcp", tcpAddr)
+	if err != nil {
+		return
+	}
+	defer tcpConn.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		buf := make([]byte, 4096)
+		for {
+			n, err := tlsConn.Read(buf)
+			if err != nil {
+				return
+			}
+			_, err = tcpConn.Write(buf[:n])
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		buf := make([]byte, 4096)
+		for {
+			n, err := tcpConn.Read(buf)
+			if err != nil {
+				return
+			}
+			_, err = tlsConn.Write(buf[:n])
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+}
+
 // ListenAndServe starts the RedHub server on the specified address with the given options.
 //
 // This is the main entry point for starting a RedHub server. The address should be
@@ -394,6 +541,12 @@ func (rs *RedHub) OnTick() (delay time.Duration, action gnet.Action) {
 //	    log.Fatal(err)
 //	}
 func ListenAndServe(addr string, options Options, rh *RedHub) error {
+	if options.TLSListenEnable {
+		if options.TLSCertFile == "" || options.TLSKeyFile == "" {
+			return errors.New("TLSListenEnable requires TLSCertFile and TLSKeyFile")
+		}
+	}
+
 	var opts []gnet.Option
 
 	if options.Multicore {
@@ -438,14 +591,28 @@ func ListenAndServe(addr string, options Options, rh *RedHub) error {
 
 	rh.mu.Lock()
 	rh.addr = addr
+	rh.tcpAddr = addr
 	rh.running = true
 	rh.mu.Unlock()
+
+	if options.TLSListenEnable {
+		if err := rh.startTLSListener(options); err != nil {
+			rh.mu.Lock()
+			rh.running = false
+			rh.mu.Unlock()
+			return err
+		}
+	}
 
 	err := gnet.Run(rh, addr, opts...)
 
 	rh.mu.Lock()
 	rh.running = false
 	rh.mu.Unlock()
+
+	if rh.tlsListener != nil {
+		rh.tlsListener.Close()
+	}
 
 	return err
 }
@@ -465,5 +632,10 @@ func (rs *RedHub) Close() error {
 	}
 
 	rs.running = false
+
+	if rs.tlsListener != nil {
+		_ = rs.tlsListener.Close()
+	}
+
 	return rs.engine.Stop(context.Background())
 }
